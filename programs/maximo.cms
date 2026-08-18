@@ -1,0 +1,25 @@
+/* Maximo: encontra o maior elemento de um vetor de 10 */
+
+int vet[10];
+
+void main(void)
+{
+    int i;
+    int max;
+
+    i = 0;
+    while (i < 10) {
+        vet[i] = input();
+        i = i + 1;
+    }
+
+    max = vet[0];
+    i = 1;
+    while (i < 10) {
+        if (vet[i] > max) {
+            max = vet[i];
+        }
+        i = i + 1;
+    }
+    output(max);
+}

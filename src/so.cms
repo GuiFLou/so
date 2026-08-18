@@ -1,0 +1,373 @@
+/* ================================================================
+ * SO Simples — Processador MIPS-Lite
+ *
+ * Kernel monolitico em C-.
+ * Compilar com: ./cminus so.cms
+ *
+ * Convencoes:
+ *   - Sem structs: arrays paralelos simulam tabelas
+ *   - Sem strings: menu usa codigos numericos no 7-seg
+ *   - Sem %: modulo = a - (a / b) * b
+ *   - Retorno de erro: 0 - 1  (equivale a -1)
+ * ================================================================ */
+
+/* ----------------------------------------------------------------
+ * Secao 1: Dados globais — Tabela de processos
+ * ----------------------------------------------------------------
+ * Estado: 0=livre, 1=pronto, 2=executando
+ * ---------------------------------------------------------------- */
+
+int proc_state[4];
+int proc_pc[4];
+int proc_sp[4];
+int proc_rom_base[4];
+int proc_data_base[4];
+int current_pid;
+int num_active;
+
+/* Contexto de registradores: 4 processos x 16 regs (Fase 2) */
+int ctx[64];
+
+/* ----------------------------------------------------------------
+ * Secao 2: Dados globais — Catalogo de programas (HD)
+ * ---------------------------------------------------------------- */
+
+int cat_id[10];
+int cat_sector[10];
+int cat_size[10];
+int cat_count;
+
+/* ================================================================
+ * Secao 3: Funcoes auxiliares
+ * ================================================================ */
+
+int modulo(int a, int b)
+{
+    return a - (a / b) * b;
+}
+
+/* ================================================================
+ * Secao 4: Gerenciamento de processos
+ * ================================================================ */
+
+void init_procs(void)
+{
+    int i;
+    i = 0;
+    while (i < 4) {
+        proc_state[i] = 0;
+        proc_pc[i] = 0;
+        proc_sp[i] = 0;
+        proc_rom_base[i] = 0;
+        proc_data_base[i] = 0;
+        i = i + 1;
+    }
+    current_pid = 0;
+    num_active = 0;
+}
+
+int find_free_slot(void)
+{
+    int i;
+    i = 0;
+    while (i < 4) {
+        if (proc_state[i] == 0) return i;
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+int create_process(int prog_idx)
+{
+    int pid;
+    pid = find_free_slot();
+    if (pid < 0) return 0 - 1;
+
+    proc_state[pid] = 1;
+    proc_rom_base[pid] = 512 + pid * 256;
+    proc_data_base[pid] = 128 + pid * 512;
+    proc_sp[pid] = proc_data_base[pid] + 511;
+    proc_pc[pid] = proc_rom_base[pid];
+    num_active = num_active + 1;
+
+    /* TODO: hd_load(cat_sector[prog_idx], proc_rom_base[pid], cat_size[prog_idx]) */
+
+    return pid;
+}
+
+void destroy_process(int pid)
+{
+    if (proc_state[pid] > 0) {
+        proc_state[pid] = 0;
+        num_active = num_active - 1;
+    }
+}
+
+/* ================================================================
+ * Secao 5: Escalonador round-robin (Fase 2)
+ * ================================================================ */
+
+void save_context(int pid)
+{
+    /* TODO Fase 2: salvar $t0-$t9, $sp, $ra, $gp no array ctx
+     * ctx[pid * 16 + 0] = $t0
+     * ctx[pid * 16 + 1] = $t1
+     * ...
+     * Depende do mecanismo de interrupcao em hardware.
+     */
+}
+
+void restore_context(int pid)
+{
+    /* TODO Fase 2: restaurar registradores de ctx[pid * 16 + ...] */
+}
+
+int next_process(void)
+{
+    int i;
+    int candidate;
+    i = 1;
+    while (i < 4) {
+        candidate = modulo(current_pid + i, 4);
+        if (proc_state[candidate] == 1) return candidate;
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+void context_switch(void)
+{
+    int next;
+
+    save_context(current_pid);
+    proc_state[current_pid] = 1;
+
+    next = next_process();
+    if (next > 0 - 1) {
+        current_pid = next;
+        proc_state[next] = 2;
+        restore_context(next);
+    }
+}
+
+/* ================================================================
+ * Secao 6: Catalogo de programas (CRUD)
+ * ================================================================ */
+
+void init_catalog(void)
+{
+    int i;
+    i = 0;
+    while (i < 10) {
+        cat_id[i] = 0;
+        cat_sector[i] = 0;
+        cat_size[i] = 0;
+        i = i + 1;
+    }
+    cat_count = 0;
+}
+
+int find_program(int id)
+{
+    int i;
+    i = 0;
+    while (i < cat_count) {
+        if (cat_id[i] == id) return i;
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+void list_programs(void)
+{
+    int i;
+    int dummy;
+    i = 0;
+    while (i < cat_count) {
+        output(cat_id[i]);
+        dummy = input();
+        i = i + 1;
+    }
+    output(0);
+}
+
+int rename_program(int old_id, int new_id)
+{
+    int idx;
+    idx = find_program(old_id);
+    if (idx < 0) return 0;
+    cat_id[idx] = new_id;
+    return 1;
+}
+
+int delete_program(int id)
+{
+    int idx;
+    int i;
+    idx = find_program(id);
+    if (idx < 0) return 0;
+
+    i = idx;
+    while (i < cat_count - 1) {
+        cat_id[i] = cat_id[i + 1];
+        cat_sector[i] = cat_sector[i + 1];
+        cat_size[i] = cat_size[i + 1];
+        i = i + 1;
+    }
+    cat_count = cat_count - 1;
+    return 1;
+}
+
+/* ================================================================
+ * Secao 7: Execucao de programas
+ * ================================================================ */
+
+void run_single(void)
+{
+    int prog_id;
+    int idx;
+    int pid;
+
+    output(11);
+    prog_id = input();
+    idx = find_program(prog_id);
+
+    if (idx < 0) {
+        output(900);
+    } else {
+        pid = create_process(idx);
+        if (pid < 0) {
+            output(901);
+        } else {
+            proc_state[pid] = 2;
+            /* TODO: desviar PC para proc_rom_base[pid]
+             * Quando o programa executar HLT, o controle
+             * deve retornar ao SO (handler ou polling).
+             */
+            output(800);
+            destroy_process(pid);
+        }
+    }
+}
+
+void run_multitask(void)
+{
+    int count;
+    int prog_id;
+    int idx;
+    int i;
+
+    output(21);
+    count = input();
+
+    i = 0;
+    while (i < count) {
+        output(11);
+        prog_id = input();
+        idx = find_program(prog_id);
+        if (idx > 0 - 1) {
+            create_process(idx);
+        }
+        i = i + 1;
+    }
+
+    /* TODO Fase 2: ativar interrupt_timer, iniciar round-robin
+     * while (num_active > 0) {
+     *     context_switch();
+     * }
+     */
+    output(700);
+}
+
+/* ================================================================
+ * Secao 8: Shell / Menu
+ * ================================================================ */
+
+void menu(void)
+{
+    int op;
+    int id1;
+    int id2;
+    int running;
+
+    running = 1;
+    while (running == 1) {
+        output(10);
+        op = input();
+
+        if (op == 1) {
+            run_single();
+        } else {
+            if (op == 2) {
+                run_multitask();
+            } else {
+                if (op == 3) {
+                    list_programs();
+                } else {
+                    if (op == 4) {
+                        output(41);
+                        id1 = input();
+                        output(42);
+                        id2 = input();
+                        rename_program(id1, id2);
+                    } else {
+                        if (op == 5) {
+                            output(51);
+                            id1 = input();
+                            delete_program(id1);
+                        } else {
+                            if (op == 0) {
+                                running = 0;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/* ================================================================
+ * Secao 9: BIOS — Sequencia de boot
+ * ================================================================ */
+
+void bios_selftest(void)
+{
+    /* TODO: escrever/ler padrao na RAM para validar
+     * Ex.: escrever 0xAA55 no endereco 0, ler de volta, comparar
+     */
+    output(111);
+}
+
+void bios_load_catalog(void)
+{
+    /* TODO: ler setor 0 do HD via memory-mapped I/O
+     *   SW[1020] = 1        (comando ler)
+     *   SW[1021] = 0        (setor 0)
+     *   SW[1022] = cat_addr (endereco destino)
+     *   polling em SW[1023] ate status == 2 (done)
+     *
+     * Depois: parse dos dados para preencher cat_id[], cat_sector[], etc.
+     */
+    init_catalog();
+}
+
+/* ================================================================
+ * Secao 10: Entry Point
+ * ================================================================ */
+
+void main(void)
+{
+    /* BIOS */
+    bios_selftest();
+    bios_load_catalog();
+
+    /* Kernel init */
+    init_procs();
+
+    /* Shell */
+    menu();
+
+    /* Halt */
+    output(0);
+}

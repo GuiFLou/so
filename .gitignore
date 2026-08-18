@@ -1,0 +1,20 @@
+# Binários gerados pelo compilador
+*.s
+*.tm
+*.txt
+!docs/**/*.txt
+
+# Simulação Verilog
+*.vvp
+*.vcd
+*.out
+
+# Quartus
+db/
+incremental_db/
+output_files/
+*.qws
+*.bak
+
+# macOS
+.DS_Store

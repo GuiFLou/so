@@ -1,0 +1,28 @@
+/* Busca linear: procura um valor em um vetor de 10 elementos */
+
+int vet[10];
+
+void main(void)
+{
+    int i;
+    int alvo;
+    int pos;
+
+    i = 0;
+    while (i < 10) {
+        vet[i] = input();
+        i = i + 1;
+    }
+
+    alvo = input();
+
+    pos = 0 - 1;
+    i = 0;
+    while (i < 10) {
+        if (vet[i] == alvo) {
+            pos = i;
+        }
+        i = i + 1;
+    }
+    output(pos);
+}
