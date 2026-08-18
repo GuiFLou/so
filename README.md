@@ -28,20 +28,18 @@ so/
 ├── docs/
 │   ├── notes.md            # Notas originais do projeto
 │   ├── architecture.md     # Arquitetura detalhada do SO
-│   └── memory_map.md       # Mapa de memória (ROM/RAM/HD)
+│   ├── memory_map.md       # Mapa de memória (ROM/RAM/HD)
+│   └── dev_plan.md         # Plano de desenvolvimento
 ├── src/
 │   └── so.cms              # Kernel completo em C-
-├── hardware/
-│   ├── inst_mem_rw.v       # Memória de instrução gravável
-│   ├── hd_sim.v            # HD simulado (trilha/setor)
-│   └── interrupt_timer.v   # Timer de quantum (Fase 2)
-├── programs/               # Os 10 algoritmos em C-
-│   ├── fatorial.cms
-│   ├── gcd.cms
-│   └── ...
 └── tests/
     └── tb_so.v             # Testbench de integração
 ```
+
+O hardware permanece no repositório [`../processador`](../processador) e o
+compilador, as fontes dos algoritmos e os binários de teste permanecem em
+[`../compilador`](../compilador). O repositório do SO contém o kernel, sua
+documentação e os testes específicos de integração.
 
 ## Fases do projeto
 
@@ -75,7 +73,7 @@ cp so.txt ../processador/
 ## Dependências
 
 - **Compilador C-**: `../compilador/` (gera binários `.txt`)
-- **Processador MIPS-Lite**: `../processador/` (executa no FPGA)
+- **Processador MIPS-Lite e hardware**: `../processador/`
 - **Intel Quartus**: Síntese dos módulos Verilog de hardware
 - **Icarus Verilog**: Simulação dos testbenches
 

@@ -15,8 +15,8 @@
 //     ../processador/debounce.v \
 //     ../processador/bin32_to_bcd7.v \
 //     ../processador/hex7seg.v \
-//     hardware/inst_mem_rw.v \
-//     hardware/hd_sim.v
+//     ../processador/inst_mem_rw.v \
+//     ../processador/hd_sim.v
 //   vvp sim_so
 
 `timescale 1ns / 1ps
@@ -33,8 +33,8 @@ module tb_so;
     wire [6:0]  HEX0, HEX1, HEX2, HEX3, HEX4, HEX5, HEX6;
     wire [17:0] LEDR;
 
-    // TODO: instanciar processador com inst_mem_rw no lugar de single_port_rom
-    // TODO: instanciar hd_sim conectado à RAM
+    // TODO: instanciar processador com ../processador/inst_mem_rw.v
+    // no lugar de single_port_rom e conectar ../processador/hd_sim.v à RAM
     //
     // Por enquanto, instanciar processador original para validar
     // que o kernel compila e o boot sequence roda.
