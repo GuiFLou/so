@@ -8,15 +8,19 @@ A linguagem C- não tem `#include`, structs, strings nem linker — todo o kerne
 
 ### Restrições da plataforma
 
-| Aspecto | Limitação |
-|---------|-----------|
-| Linguagem | C-: apenas `int`, `void`, arrays de `int`, `input()`/`output()` |
-| ROM | 1024 palavras × 32 bits (instrução) |
-| RAM | 1024 palavras × 32 bits (dados) |
-| Registradores | 64 × 32 bits (`$t0`–`$t9`, `$sp`, `$gp`, `$ra`, `$fp`, etc.) |
-| I/O | IN (switches 10 bits), OUT (7 segmentos) |
-| Clock | Monociclo, ~2–100 Hz configurável |
-| Operador `%` | Não existe em C- — usar `a - (a / b) * b` |
+
+| Aspecto       | Limitação                                                       |
+| ------------- | --------------------------------------------------------------- |
+| Linguagem     | C-: apenas `int`, `void`, arrays de `int`, `input()`/`output()` |
+| ROM           | 1024 palavras × 32 bits (instrução)                             |
+| RAM           | 1024 palavras × 32 bits (dados)                                 |
+| Registradores | 64 × 32 bits (`$t0`–`$t9`, `$sp`, `$gp`, `$ra`, `$fp`, etc.)    |
+| I/O           | IN (switches 10 bits), OUT (7 segmentos)                        |
+| Clock         | Monociclo, ~2–100 Hz configurável                               |
+| Operador `%`  | Não existe em C- — usar `a - (a / b) * b`                       |
+
+
+
 
 ## 2. Camadas do sistema
 
@@ -32,13 +36,15 @@ A linguagem C- não tem `#include`, structs, strings nem linker — todo o kerne
 │  └─────────┴────────┴────────────┘  │
 ├─────────────────────────────────────┤
 │  Camada 1: Abstração de Hardware    │
-│  hd_read/write, load_program,      │
+│  hd_read/write, load_program,       │
 │  save/restore_context               │
 ├─────────────────────────────────────┤
 │  Camada 0: Hardware (Verilog)       │
 │  inst_mem_rw, hd_sim, int_timer     │
 └─────────────────────────────────────┘
 ```
+
+
 
 ## 3. Estruturas de dados em C-
 
@@ -66,12 +72,16 @@ int cat_size[10];        tamanho em palavras
 int cat_count;           total de programas no catálogo
 ```
 
+
+
 ### Contexto de registradores (Fase 2)
 
 ```
 int ctx[64];             4 processos × 16 registradores
                          ctx[pid * 16 + reg_idx] = valor
 ```
+
+
 
 ## 4. Fluxo de boot
 
@@ -99,6 +109,8 @@ Power-on / Reset
     └── op==0 → HALT
 ```
 
+
+
 ## 5. Execução de 1 programa (Fase 1)
 
 1. Usuário escolhe opção 1, informa ID do programa
@@ -114,27 +126,34 @@ durante a execução normal.
 
 ## 6. Multitarefa com preempção (Fase 2)
 
+
+
 ### Round-Robin
 
 1. Cada processo recebe um **quantum** de N instruções
 2. Hardware (`interrupt_timer.v`) conta instruções executadas
 3. Ao estourar o quantum:
-   - Timer salva PC atual em registrador especial
-   - Timer força PC = endereço fixo do handler do SO
-   - Timer desativa contagem (modo kernel)
+  - Timer salva PC atual em registrador especial
+  - Timer força PC = endereço fixo do handler do SO
+  - Timer desativa contagem (modo kernel)
 4. Handler do SO:
-   - Salva contexto completo (registradores) do processo atual
-   - Seleciona próximo processo pronto (round-robin circular)
-   - Restaura contexto do próximo processo
-   - Reativa timer com novo quantum
-   - Salta para o PC restaurado
+  - Salva contexto completo (registradores) do processo atual
+  - Seleciona próximo processo pronto (round-robin circular)
+  - Restaura contexto do próximo processo
+  - Reativa timer com novo quantum
+  - Salta para o PC restaurado
+
+
 
 ### Modo Kernel
 
 O timer **não deve** interromper o próprio SO. Um flip-flop `kernel_mode`:
+
 - Setado quando o handler é ativado (interrupt)
 - Limpo quando o SO devolve controle ao processo (restaura PC)
 - Enquanto setado, o contador de quantum não decrementa
+
+
 
 ## 7. Interface com o HD
 
@@ -145,22 +164,27 @@ O HD é simulado em Verilog (`hd_sim.v`) com organização trilha/setor.
 O kernel se comunica com o HD controller escrevendo em endereços
 fixos da RAM:
 
+
 | Endereço RAM | Nome      | Uso                              |
-|--------------|-----------|----------------------------------|
+| ------------ | --------- | -------------------------------- |
 | 1020         | HD_CMD    | Comando: 1=ler, 2=escrever       |
-| 1021         | HD_SECTOR | Setor de origem/destino           |
-| 1022         | HD_ADDR   | Endereço base na memória destino  |
+| 1021         | HD_SECTOR | Setor de origem/destino          |
+| 1022         | HD_ADDR   | Endereço base na memória destino |
 | 1023         | HD_STATUS | Status: 0=idle, 1=busy, 2=done   |
+
 
 O HD controller em Verilog intercepta escritas nesses endereços
 e realiza a transferência de dados.
 
 ## 8. Alterações necessárias no processador
 
-| Módulo | Alteração | Motivo |
-|--------|-----------|--------|
-| `single_port_rom.v` | Substituir por `inst_mem_rw.v` | Permitir escrita (carga de programas) |
-| `data_ram.v` | Interceptar endereços 1020–1023 | Interface memory-mapped para HD |
-| **Novo:** `hd_sim.v` | Módulo completo | Simular armazenamento persistente |
-| **Novo:** `interrupt_timer.v` | Módulo completo (Fase 2) | Quantum + interrupção |
-| `Processador_GUI_MIPS.v` | Integrar novos módulos | Top-level |
+
+| Módulo                        | Alteração                       | Motivo                                |
+| ----------------------------- | ------------------------------- | ------------------------------------- |
+| `single_port_rom.v`           | Substituir por `inst_mem_rw.v`  | Permitir escrita (carga de programas) |
+| `data_ram.v`                  | Interceptar endereços 1020–1023 | Interface memory-mapped para HD       |
+| **Novo:** `hd_sim.v`          | Módulo completo                 | Simular armazenamento persistente     |
+| **Novo:** `interrupt_timer.v` | Módulo completo (Fase 2)        | Quantum + interrupção                 |
+| `Processador_GUI_MIPS.v`      | Integrar novos módulos          | Top-level                             |
+
+
