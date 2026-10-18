@@ -44,7 +44,9 @@ documentação.
 
 ## Fases do projeto
 
-### Fase 1 — MVP
+A gestão de processos pesa mais na nota, então a execução e o escalonamento vêm antes do CRUD. Os dez programas já estão na imagem do HD; criar, renomear e apagar não desbloqueiam nem a execução individual nem a multitarefa.
+
+### Base (concluída)
 - [x] Mapa de memória definido (4096 palavras; kernel, folha da vez e supervisor co-residentes)
 - [x] Atualizar a estrutura do processador para esse mapa: IMEM e RAM de 4096 palavras; kernel em 0–3071, folha da vez em 3072–3839, supervisor em 3840–4095; RAM com dados do kernel, janela do programa, mailbox e MMIO em 4088–4095
 - [x] HD simulado em Verilog (`hd_sim.v`), integrado no top-level
@@ -52,17 +54,26 @@ documentação.
 - [x] LCD com mensagens fixas (`display_ctx` no endereço 4091)
 - [x] Sem BIOS: o reset busca `so.txt` na IMEM (hoje NOP até 3070 e `J 3071` na última palavra do kernel)
 - [x] Remontar `hd_image.txt` (catálogo no setor 0, kernel em NOP nos setores 1–12, programas nos setores 20–29, janelas dos PIDs zeradas)
-- [ ] Menu/Shell com códigos numéricos no LCD
-- [ ] Executar 1 programa (sem preempção)
-- [ ] CRUD de programas (criar, listar, renomear, deletar)
+
+### Fase 1 — Execução individual
+O usuário seleciona um programa pelo LCD, executa só esse programa e, ao terminar, volta ao menu para escolher outro. Os IDs são os já gravados na imagem.
+
+- [x] Menu no LCD: boas-vindas, três opções, lista dos dez programas, quantidade e a tela de arquivos. A opção de um programa mostra RUN e ainda não carrega o HD
+- [ ] Carregar o programa escolhido do HD para a folha da vez e desviar o PC
+- [ ] Executar 1 programa (sem preempção) e voltar ao menu após o término
 
 ### Fase 2 — Multitarefa com preempção
+O usuário escolhe N programas e o SO os executa com interrupção por quantum.
+
 - [ ] Timer de quantum em Verilog (`interrupt_timer.v`)
 - [ ] Flag de modo kernel (não interromper o SO)
 - [ ] Tabela de processos (PCB em arrays paralelos)
 - [ ] Salvar/restaurar contexto (registradores + PC)
 - [ ] Escalonador round-robin
 - [ ] Executar N programas concorrentemente
+
+### Fase 3 — CRUD de arquivos
+- [ ] Criar, listar, renomear e deletar programas no catálogo do HD
 
 ## Como compilar
 
@@ -81,41 +92,29 @@ arquivo e dos setores 1–12 de `hd_image.txt`. O salto de guarda permanece em
 - **Intel Quartus**: Síntese dos módulos Verilog de hardware
 - **Icarus Verilog**: Simulação dos testbenches
 
-## LCD (hardware já integrado)
+## LCD
 
-O kernel escreve o modo em `display_ctx` (endereço 4091). O catálogo fixo é:
+O kernel grava uma palavra em `display_ctx`, no endereço 4091. O Verilog desenha o texto. O programa não envia caracteres.
 
-| Modo | Linha 1 | Uso |
-|------|---------|-----|
-| 1 | `MENU` | opções RUN, MLT, LST, REN, DEL (KEY[2]/KEY[3]) |
-| 2 | `ID?` | ID numérico na linha 2 |
-| 3 | `RUN` | ID e PID em execução |
-| 4 | `OK` | operação aceita |
-| 5 | `ERR` | operação recusada |
+A escrita leva o modo nos bits 7 a 0, o identificador nos bits 17 a 8 e o PID nos bits 21 a 18. Toda escrita zera o bit 27, que é a confirmação. Se o modo mudar, o índice volta a zero. O mesmo modo conserva o índice. A leitura devolve também o índice, nos bits 26 a 22. Os bits 31 a 28 ficam em zero.
 
-KEY[1] confirma e não muda o índice. O 7-seg continua sendo a saída de `OUT`.
+KEY[3] avança e KEY[2] recua, com volta, só quando a tela tem mais de um item e a CPU não está parada em `IN` ou `OUT`. KEY[1] liga a confirmação e não muda o índice. O aperto que solta um `IN` ou um `OUT` não confirma o menu. KEY[0] é o reset da placa, ativo em nível baixo.
 
-## Convenções numéricas do menu (7-seg, ainda não ligadas ao LCD)
+| Modo | Itens | Linha 1 | Linha 2 |
+|------|-------|---------|---------|
+| 1 | 3 | `MENU` | `>1 RUN`, `>2 MLT` ou `>3 ARQ` |
+| 2 | 1 | `BEM-VINDO` | `SO` |
+| 3 | 1 | `RUN` | identificador em quatro dígitos e PID; PID acima de 9 vira traço |
+| 4 | 1 | `OK` | em branco |
+| 5 | 1 | `ERR` | em branco |
+| 6 | 10 | `PROG` | `>`, quatro dígitos do identificador e o nome do índice |
+| 7 | 10 | `QUANTOS` | `>01` a `>10`, iguais ao índice mais um |
+| 8 | 1 | `ARQUIVOS` | `FASE 3` |
 
-| Código exibido | Significado                |
-|----------------|----------------------------|
-| `10`           | Menu pronto — aguarda opção |
-| `11`           | Insira ID do programa       |
-| `41`           | Insira ID atual (renomear)  |
-| `42`           | Insira novo ID (renomear)   |
-| `51`           | Insira ID para deletar      |
-| `111`          | Código antigo de diagnóstico; não há BIOS |
-| `800`          | Programa executou com sucesso |
-| `900`          | Erro: programa não encontrado |
-| `0`            | Sistema desligado            |
+Os nomes, na ordem do índice, são AREA, BUSCA, FAT, FIB, GCD, MEDIA, PRIMO, POT, DIG e SORT. Os dígitos vêm do identificador escrito pelo kernel: 1 a 10, setores 20 a 29, na mesma ordem.
 
-### Opções do menu (via switches)
+No `so.cms`, o arranque mostra boas-vindas e espera KEY[1]. A primeira opção lista um programa e, no Enter, mostra RUN com o PID vazio. Não copia o setor nem desvia o PC. A segunda pergunta quantos programas e, depois de escolhê-los, mostra ERR, porque a preempção ainda não existe. A terceira avisa que arquivos ficam para a fase 3. O menu não chama `input()` nem `output()`: as duas instruções também esperam KEY[1].
 
-| Switch | Ação                     |
-|--------|--------------------------|
-| `1`    | Executar 1 programa      |
-| `2`    | Executar multitarefa     |
-| `3`    | Listar programas         |
-| `4`    | Renomear programa        |
-| `5`    | Deletar programa         |
-| `0`    | Desligar (HALT)          |
+O sete segmentos continua sendo a saída de `OUT`. Os códigos 10, 11, 41, 42, 51, 111, 800 e 900 eram o menu antigo, feito com switches. O menu do LCD não os mostra.
+
+O compilador expõe `lcdshow(modo, id, pid)`, `lcdack()` e `lcdsel()`. `loadHD`, `storeHD` e `loadROM` ainda usam 1020 a 1023. O hardware do disco está em 4092 a 4095. A troca de endereço espera o teste que copiar um setor.

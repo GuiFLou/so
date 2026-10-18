@@ -6,7 +6,7 @@
  *
  * Convencoes:
  *   - Sem structs: arrays paralelos simulam tabelas
- *   - Sem strings: menu usa codigos numericos no 7-seg
+ *   - Sem strings: o menu escreve o LCD em 4091 (lcdshow/lcdack/lcdsel)
  *   - Sem %: modulo = a - (a / b) * b
  *   - Retorno de erro: 0 - 1  (equivale a -1)
  * ================================================================ */
@@ -167,6 +167,32 @@ void init_catalog(void)
     cat_count = 0;
 }
 
+/* IDs e setores da imagem do HD. O tamanho entra quando a carga do setor existir. */
+void seed_catalog(void)
+{
+    cat_id[0] = 1;
+    cat_sector[0] = 20;
+    cat_id[1] = 2;
+    cat_sector[1] = 21;
+    cat_id[2] = 3;
+    cat_sector[2] = 22;
+    cat_id[3] = 4;
+    cat_sector[3] = 23;
+    cat_id[4] = 5;
+    cat_sector[4] = 24;
+    cat_id[5] = 6;
+    cat_sector[5] = 25;
+    cat_id[6] = 7;
+    cat_sector[6] = 26;
+    cat_id[7] = 8;
+    cat_sector[7] = 27;
+    cat_id[8] = 9;
+    cat_sector[8] = 28;
+    cat_id[9] = 10;
+    cat_sector[9] = 29;
+    cat_count = 10;
+}
+
 int find_program(int id)
 {
     int i;
@@ -280,47 +306,110 @@ void run_multitask(void)
 }
 
 /* ================================================================
- * Secao 8: Shell / Menu
+ * Secao 8: Shell / Menu no LCD
+ * KEY[2] e KEY[3] andam. KEY[1] liga o ack. IN/OUT nao entram aqui:
+ * eles usam o mesmo botao e a CPU parada nao caminha no menu.
+ * A opcao 1 so mostra RUN. A opcao 2 escolhe N e cai em ERR.
+ * Carregar o HD e desviar o PC ficam para a etapa da execucao.
  * ================================================================ */
+
+int wait_choice(void)
+{
+    int a;
+
+    a = 0;
+    while (a == 0) {
+        a = lcdack();
+    }
+    return lcdsel();
+}
+
+/* fresh=1 entra na lista e o hardware zera o indice. fresh=0 continua
+ * no item atual e so apaga o ack, para o proximo Enter valer. */
+int choose_program(int fresh)
+{
+    int shown;
+    int s;
+    int a;
+    int id;
+    int ready;
+
+    if (fresh == 1) {
+        id = cat_id[0];
+        lcdshow(6, id, 0);
+        shown = 0;
+    } else {
+        s = lcdsel();
+        id = cat_id[s];
+        lcdshow(6, id, 0);
+        shown = s;
+    }
+
+    a = 0;
+    while (a == 0) {
+        a = lcdack();
+        if (a == 0) {
+            s = lcdsel();
+            if (s != shown) {
+                ready = lcdack();
+                if (ready == 0) {
+                    id = cat_id[s];
+                    lcdshow(6, id, 0);
+                    shown = s;
+                }
+            }
+        }
+    }
+    s = lcdsel();
+    return cat_id[s];
+}
+
+void show_run(int id)
+{
+    lcdshow(3, id, 15);
+    wait_choice();
+}
+
+void show_error(void)
+{
+    lcdshow(5, 0, 0);
+    wait_choice();
+}
 
 void menu(void)
 {
     int op;
-    int id1;
-    int id2;
-    int running;
+    int n;
+    int i;
+    int fresh;
+    int id;
 
-    running = 1;
-    while (running == 1) {
-        output(10);
-        op = input();
+    lcdshow(2, 0, 0);
+    wait_choice();
 
-        if (op == 1) {
-            run_single();
+    while (1 == 1) {
+        lcdshow(1, 0, 0);
+        op = wait_choice();
+        if (op == 0) {
+            id = choose_program(1);
+            show_run(id);
         } else {
-            if (op == 2) {
-                run_multitask();
+            if (op == 1) {
+                lcdshow(7, 0, 0);
+                n = wait_choice();
+                n = n + 1;
+                i = 0;
+                fresh = 1;
+                while (i < n) {
+                    id = choose_program(fresh);
+                    fresh = 0;
+                    i = i + 1;
+                }
+                show_error();
             } else {
-                if (op == 3) {
-                    list_programs();
-                } else {
-                    if (op == 4) {
-                        output(41);
-                        id1 = input();
-                        output(42);
-                        id2 = input();
-                        rename_program(id1, id2);
-                    } else {
-                        if (op == 5) {
-                            output(51);
-                            id1 = input();
-                            delete_program(id1);
-                        } else {
-                            if (op == 0) {
-                                running = 0;
-                            }
-                        }
-                    }
+                if (op == 2) {
+                    lcdshow(8, 0, 0);
+                    wait_choice();
                 }
             }
         }
@@ -341,13 +430,9 @@ void bios_selftest(void)
 
 void bios_load_catalog(void)
 {
-    /* TODO: ler setor 0 do HD via memory-mapped I/O
-     *   SW[1020] = 1        (comando ler)
-     *   SW[1021] = 0        (setor 0)
-     *   SW[1022] = cat_addr (endereco destino)
-     *   polling em SW[1023] ate status == 2 (done)
-     *
-     * Depois: parse dos dados para preencher cat_id[], cat_sector[], etc.
+    /* TODO: ler o setor 0. No hardware os registradores sao 4092 a 4095.
+     * O compilador ainda emite loadHD/storeHD/loadROM em 1020 a 1023.
+     * O menu nao chama esta funcao: usa a tabela fixa de seed_catalog.
      */
     init_catalog();
 }
@@ -358,16 +443,8 @@ void bios_load_catalog(void)
 
 void main(void)
 {
-    /* BIOS */
-    bios_selftest();
-    bios_load_catalog();
-
-    /* Kernel init */
+    /* O autoteste usa output() e roubaria o KEY[1] do menu. */
+    seed_catalog();
     init_procs();
-
-    /* Shell */
     menu();
-
-    /* Halt */
-    output(0);
 }

@@ -19,5 +19,8 @@ output_files/
 # macOS
 .DS_Store
 
+# Relatórios de outros grupos, só para consulta local
+docs/relatorio_*.pdf
+
 # Contexto consolidado para assistência automatizada
 docs/CONTEXT.md
