@@ -27,20 +27,22 @@ Sistema operacional simples escrito em C-, compilado pelo compilador C- do proje
 so/
 ├── docs/
 │   ├── notes.md            # Notas originais do projeto
-│   ├── architecture.md     # Arquitetura detalhada do SO
-│   ├── memory_map.md       # Mapa de memória (ROM/RAM/HD)
-│   └── dev_plan.md         # Plano de desenvolvimento
-├── src/
-│   └── so.cms              # Kernel completo em C-
+│   └── CONTEXT.md          # Contexto local (fora do git)
+├── relatorio/
+│   └── relatorio_so.tex
+└── src/
+    └── so.cms              # Kernel em C-
 ```
 
 Os testes desta etapa ficam no repositório do processador: `tb_lcd`,
-`tb_hd_map` e `tb_hd_stall`.
+`tb_hd_map`, `tb_hd_stall` e `tb_menu`.
 
-O hardware permanece no repositório [`../processador`](../processador) e o
-compilador, as fontes dos algoritmos e os binários de teste permanecem em
-[`../compilador`](../compilador). O repositório do SO contém o kernel e a
-documentação.
+O hardware permanece no repositório [`../processador`](../processador). O
+compilador e as fontes ficam em [`../compilador`](../compilador).
+`compilador/exemplos/` é a ROM solta: `reset_tests.sh` sem flag a regenera.
+Os binários que o SO executa estão no processador, nos setores 20–29 de
+`hd_image.txt`. Com `--target=os-user` o script grava só esses setores e não
+mexe em `exemplos/`. O repositório do SO contém o kernel e a documentação.
 
 ## Fases do projeto
 
@@ -52,15 +54,15 @@ A gestão de processos pesa mais na nota, então a execução e o escalonamento 
 - [x] HD simulado em Verilog (`hd_sim.v`), integrado no top-level
 - [x] Memória de instrução gravável (`inst_mem_rw.v`), integrada no top-level
 - [x] LCD com mensagens fixas (`display_ctx` no endereço 4091)
-- [x] Sem BIOS: o reset busca `so.txt` na IMEM (hoje NOP até 3070 e `J 3071` na última palavra do kernel)
+- [x] Sem BIOS: o reset busca `so.txt` na IMEM (kernel nas palavras 0–1334, NOP em 1335–3070 e `J 3071` na palavra 3071; 3072–4095 em zero)
 - [x] Remontar `hd_image.txt` (catálogo no setor 0, kernel em NOP nos setores 1–12, programas nos setores 20–29, janelas dos PIDs zeradas)
 
 ### Fase 1 — Execução individual
 O usuário seleciona um programa pelo LCD, executa só esse programa e, ao terminar, volta ao menu para escolher outro. Os IDs são os já gravados na imagem.
 
-- [x] Menu no LCD: boas-vindas, três opções, lista dos dez programas, quantidade e a tela de arquivos. A opção de um programa mostra RUN e ainda não carrega o HD
-- [ ] Carregar o programa escolhido do HD para a folha da vez e desviar o PC
-- [ ] Executar 1 programa (sem preempção) e voltar ao menu após o término
+- [x] Menu no LCD: boas-vindas, três opções, lista dos dez programas, quantidade e a tela de arquivos. A opção 1 carrega o setor escolhido e mostra RUN
+- [x] Carregar o programa escolhido do HD para a folha da vez e desviar o PC
+- [x] Executar 1 programa (sem preempção) e voltar ao menu após o término
 
 ### Fase 2 — Multitarefa com preempção
 O usuário escolhe N programas e o SO os executa com interrupção por quantum.
@@ -77,13 +79,16 @@ O usuário escolhe N programas e o SO os executa com interrupção por quantum.
 
 ## Como compilar
 
-`processador/so.txt` é a imagem de reset, com 4096 palavras. O topo a carrega
-por `ROM_FILE`. Enquanto o kernel não é compilado, as palavras 0–3070 são NOP
-e a palavra 3071 é `J 3071`.
+`processador/so.txt` é a imagem de reset, com 4096 palavras. O Quartus a lê,
+junto com `hd_image.txt`, do diretório do processador (`MISC_FILE` no
+`.qsf`). O kernel compilado ocupa as palavras 0–1334. As palavras 1335–3070
+são NOP, a palavra 3071 é `J 3071` e 3072–4095 continuam zero. O supervisor
+ainda não existe. Os padrões de síntese são `CPU_DIV` 5000, `BTN_STABLE`
+1000000 e os tempos reais do LCD. O `tb_menu` encurta isso só na simulação.
 
-Quando existir o binário `os-kernel`, ele substitui as palavras 0–3070 desse
-arquivo e dos setores 1–12 de `hd_image.txt`. O salto de guarda permanece em
-3071. O compilador ainda não tem o alvo `os-kernel`.
+O alvo `os-kernel` ainda não existe na linha de comando. O kernel de
+`so.txt` saiu do alvo padrão. Os setores 1–12 de `hd_image.txt` seguem em
+NOP; os programas canônicos estão nos setores 20–29.
 
 ## Dependências
 
@@ -113,8 +118,8 @@ KEY[3] avança e KEY[2] recua, com volta, só quando a tela tem mais de um item 
 
 Os nomes, na ordem do índice, são AREA, BUSCA, FAT, FIB, GCD, MEDIA, PRIMO, POT, DIG e SORT. Os dígitos vêm do identificador escrito pelo kernel: 1 a 10, setores 20 a 29, na mesma ordem.
 
-No `so.cms`, o arranque mostra boas-vindas e espera KEY[1]. A primeira opção lista um programa e, no Enter, mostra RUN com o PID vazio. Não copia o setor nem desvia o PC. A segunda pergunta quantos programas e, depois de escolhê-los, mostra ERR, porque a preempção ainda não existe. A terceira avisa que arquivos ficam para a fase 3. O menu não chama `input()` nem `output()`: as duas instruções também esperam KEY[1].
+No `so.cms`, o arranque mostra boas-vindas e espera KEY[1]. A primeira opção lista um programa e, no Enter, chama `find_program`. Se a busca falha, ou se `loadHD(36, 1536)` ou `loadROM(cat_sector[idx], 3072)` não devolvem 0, a tela é ERR. No sucesso, mostra RUN com o identificador e PID 0 e chama `runat(3072)`. Não há espera de KEY[1] antes do programa. O `HLT` armado devolve o menu. A segunda pergunta quantos programas e, depois de escolhê-los, mostra ERR, porque a preempção ainda não existe. A terceira avisa que arquivos ficam para a fase 3. O menu não chama `input()` nem `output()`: as duas instruções também esperam KEY[1], e o aperto que solta um `IN` não confirma o menu.
 
-O sete segmentos continua sendo a saída de `OUT`. Os códigos 10, 11, 41, 42, 51, 111, 800 e 900 eram o menu antigo, feito com switches. O menu do LCD não os mostra.
+O sete segmentos continua sendo a saída de `OUT`. O `tb_menu` executa a área, com dois `IN` e o `OUT` de base×altura/2, volta ao menu com `$gp` 0 e carrega um segundo setor na folha. Os códigos 10, 11, 41, 42, 51, 111, 800 e 900 eram o menu antigo, feito com switches. O menu do LCD não os mostra.
 
-O compilador expõe `lcdshow(modo, id, pid)`, `lcdack()` e `lcdsel()`. `loadHD`, `storeHD` e `loadROM` ainda usam 1020 a 1023. O hardware do disco está em 4092 a 4095. A troca de endereço espera o teste que copiar um setor.
+O compilador expõe `lcdshow(modo, id, pid)`, `lcdack()` e `lcdsel()`. `loadHD`, `storeHD` e `loadROM` usam 4092 a 4095 e devolvem 0 quando `hd_status` é done e 1 quando é erro. 1020 a 1023 não é o disco. `void runat(int)` não é `jal`: grava `$v0`, `$t0`–`$t9`, `$gp`, `$sp`, `$fp` e `$ra` em 1043–1057, escreve o endereço em 4088 e restaura esses registradores a partir de `lw $v0,1043`. `$hi` e `$lo` ficam de fora. O alvo `os-user` recusa HD, LCD e `runat`. A troca de contexto de 18 palavras, o supervisor, o timer, o round-robin, o CRUD, a leitura do setor 0 e `IN`/`OUT` como trap continuam pendentes.

@@ -309,8 +309,8 @@ void run_multitask(void)
  * Secao 8: Shell / Menu no LCD
  * KEY[2] e KEY[3] andam. KEY[1] liga o ack. IN/OUT nao entram aqui:
  * eles usam o mesmo botao e a CPU parada nao caminha no menu.
- * A opcao 1 so mostra RUN. A opcao 2 escolhe N e cai em ERR.
- * Carregar o HD e desviar o PC ficam para a etapa da execucao.
+ * A opcao 1 carrega a janela, a folha e salta com runat.
+ * A opcao 2 escolhe N e cai em ERR.
  * ================================================================ */
 
 int wait_choice(void)
@@ -383,6 +383,8 @@ void menu(void)
     int i;
     int fresh;
     int id;
+    int idx;
+    int st;
 
     lcdshow(2, 0, 0);
     wait_choice();
@@ -392,7 +394,23 @@ void menu(void)
         op = wait_choice();
         if (op == 0) {
             id = choose_program(1);
-            show_run(id);
+            idx = find_program(id);
+            if (idx > 0 - 1) {
+                st = loadHD(36, 1536);
+                if (st == 0) {
+                    st = loadROM(cat_sector[idx], 3072);
+                    if (st == 0) {
+                        lcdshow(3, id, 0);
+                        runat(3072);
+                    } else {
+                        show_error();
+                    }
+                } else {
+                    show_error();
+                }
+            } else {
+                show_error();
+            }
         } else {
             if (op == 1) {
                 lcdshow(7, 0, 0);
@@ -430,8 +448,7 @@ void bios_selftest(void)
 
 void bios_load_catalog(void)
 {
-    /* TODO: ler o setor 0. No hardware os registradores sao 4092 a 4095.
-     * O compilador ainda emite loadHD/storeHD/loadROM em 1020 a 1023.
+    /* TODO: ler o setor 0. loadHD ja usa 4092 a 4095.
      * O menu nao chama esta funcao: usa a tabela fixa de seed_catalog.
      */
     init_catalog();
