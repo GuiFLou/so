@@ -15,7 +15,7 @@ Sistema operacional simples escrito em C-, compilado pelo compilador C- do proje
 │              Kernel (so.cms)                  │
 ├──────────────────────────────────────────────┤
 │         Hardware (Verilog)                    │
-│   inst_mem_rw  │  hd_sim  │  interrupt_timer │
+│ inst_mem_rw │ hd_sim │ lcd │ timer (fase 2)  │
 ├──────────────────────────────────────────────┤
 │         Processador MIPS-Lite                 │
 └──────────────────────────────────────────────┘
@@ -31,11 +31,15 @@ so/
 ├── relatorio/
 │   └── relatorio_so.tex
 └── src/
-    └── so.cms              # Kernel em C-
+    ├── so.cms              # Kernel em C-
+    └── so.txt              # Kernel compilado (gerado, fora do git)
 ```
 
 Os testes desta etapa ficam no repositório do processador: `tb_lcd`,
-`tb_hd_map`, `tb_hd_stall` e `tb_menu`.
+`tb_hd_map`, `tb_hd_stall`, `tb_menu` e `tb_retorno`. Todos passam no
+Icarus. O `tb_menu` carrega `processador/so.txt`, a imagem de reset, então
+`src/so.txt` e essa imagem precisam ser regenerados depois de qualquer
+mudança em `so.cms`.
 
 O hardware permanece no repositório [`../processador`](../processador). O
 compilador e as fontes ficam em [`../compilador`](../compilador).
@@ -62,19 +66,22 @@ O usuário seleciona um programa pelo LCD, executa só esse programa e, ao termi
 
 - [x] Menu no LCD: boas-vindas, três opções, lista dos dez programas, quantidade e a tela de arquivos. A opção 1 carrega o setor escolhido e mostra RUN
 - [x] Carregar o programa escolhido do HD para a folha da vez e desviar o PC
-- [x] Executar 1 programa (sem preempção) e voltar ao menu após o término
+- [x] Executar 1 programa (sem preempção) e voltar ao menu após o término (validado em simulação pelo `tb_menu`)
+- [ ] Sintetizar o mapa de 4096 no Quartus e executar os dez programas na placa. A IMEM e a RAM leem de forma assíncrona e podem não caber na FPGA; ver `docs/CONTEXT.md`, estado do processador
 
 ### Fase 2 — Multitarefa com preempção
 O usuário escolhe N programas e o SO os executa com interrupção por quantum.
 
-- [ ] Timer de quantum em Verilog (`interrupt_timer.v`)
+- [ ] Pré-requisito: o compilador salvar os `$t` vivos em volta de `jal` e o `os-user` reservar pilha
+- [ ] Timer de quantum em Verilog (`interrupt_timer.v`, ainda não existe)
 - [ ] Flag de modo kernel (não interromper o SO)
-- [ ] Tabela de processos (PCB em arrays paralelos)
-- [ ] Salvar/restaurar contexto (registradores + PC)
-- [ ] Escalonador round-robin
+- [ ] Tabela de processos (PCB em arrays paralelos). Hoje há 4 posições com campos do mapa antigo; devem ser 10, com estado, ID, setor e 18 palavras de contexto
+- [ ] Salvar/restaurar contexto (registradores + PC). O `runat` e o hardware já salvam 15 registradores e o PC em 1042–1057; faltam `$hi`, `$lo` e o supervisor
+- [ ] Escalonador round-robin. `next_process` já faz a busca circular, mas não está ligado ao menu
 - [ ] Executar N programas concorrentemente
 
 ### Fase 3 — CRUD de arquivos
+- [ ] Ler o catálogo do setor 0 no arranque (hoje `seed_catalog` é fixo; o setor 0 já está gravado na imagem)
 - [ ] Criar, listar, renomear e deletar programas no catálogo do HD
 
 ## Como compilar
@@ -87,8 +94,11 @@ ainda não existe. Os padrões de síntese são `CPU_DIV` 5000, `BTN_STABLE`
 1000000 e os tempos reais do LCD. O `tb_menu` encurta isso só na simulação.
 
 O alvo `os-kernel` ainda não existe na linha de comando. O kernel de
-`so.txt` saiu do alvo padrão. Os setores 1–12 de `hd_image.txt` seguem em
-NOP; os programas canônicos estão nos setores 20–29.
+`so.txt` saiu do alvo padrão, com o NOP de tamanho e o `HLT` que o encoder
+põe em todo binário. Nenhum script monta `processador/so.txt`; a receita
+que gera o arquivo atual está em `docs/CONTEXT.md`, na construção das
+imagens iniciais. Os setores 1–12 de `hd_image.txt` seguem em NOP; os
+programas canônicos estão nos setores 20–29.
 
 ## Dependências
 
@@ -101,7 +111,7 @@ NOP; os programas canônicos estão nos setores 20–29.
 
 O kernel grava uma palavra em `display_ctx`, no endereço 4091. O Verilog desenha o texto. O programa não envia caracteres.
 
-A escrita leva o modo nos bits 7 a 0, o identificador nos bits 17 a 8 e o PID nos bits 21 a 18. Toda escrita zera o bit 27, que é a confirmação. Se o modo mudar, o índice volta a zero. O mesmo modo conserva o índice. A leitura devolve também o índice, nos bits 26 a 22. Os bits 31 a 28 ficam em zero.
+A escrita leva o modo nos bits 7 a 0, o identificador nos bits 17 a 8 e o PID nos bits 21 a 18. A escrita zera o bit 27, que é a confirmação. Se o modo mudar, o índice e a confirmação voltam a zero. O mesmo modo conserva o índice e só zera a confirmação que uma leitura já viu em 1; um KEY[1] ainda não lido continua valendo para a tela redesenhada. A leitura devolve também o índice, nos bits 26 a 22. Os bits 31 a 28 ficam em zero.
 
 KEY[3] avança e KEY[2] recua, com volta, só quando a tela tem mais de um item e a CPU não está parada em `IN` ou `OUT`. KEY[1] liga a confirmação e não muda o índice. O aperto que solta um `IN` ou um `OUT` não confirma o menu. KEY[0] é o reset da placa, ativo em nível baixo.
 
@@ -122,4 +132,578 @@ No `so.cms`, o arranque mostra boas-vindas e espera KEY[1]. A primeira opção l
 
 O sete segmentos continua sendo a saída de `OUT`. O `tb_menu` executa a área, com dois `IN` e o `OUT` de base×altura/2, volta ao menu com `$gp` 0 e carrega um segundo setor na folha. Os códigos 10, 11, 41, 42, 51, 111, 800 e 900 eram o menu antigo, feito com switches. O menu do LCD não os mostra.
 
-O compilador expõe `lcdshow(modo, id, pid)`, `lcdack()` e `lcdsel()`. `loadHD`, `storeHD` e `loadROM` usam 4092 a 4095 e devolvem 0 quando `hd_status` é done e 1 quando é erro. 1020 a 1023 não é o disco. `void runat(int)` não é `jal`: grava `$v0`, `$t0`–`$t9`, `$gp`, `$sp`, `$fp` e `$ra` em 1043–1057, escreve o endereço em 4088 e restaura esses registradores a partir de `lw $v0,1043`. `$hi` e `$lo` ficam de fora. O alvo `os-user` recusa HD, LCD e `runat`. A troca de contexto de 18 palavras, o supervisor, o timer, o round-robin, o CRUD, a leitura do setor 0 e `IN`/`OUT` como trap continuam pendentes.
+O compilador expõe `lcdshow(modo, id, pid)`, `lcdack()` e `lcdsel()`. `loadHD`, `storeHD` e `loadROM` usam 4092 a 4095 e devolvem 0 quando `hd_status` é done e 1 quando é erro ou idle. 1020 a 1023 não é o disco. `void runat(int)` não é `jal`: grava `$v0`, `$t0`–`$t9`, `$gp`, `$sp`, `$fp` e `$ra` em 1043–1057, escreve o endereço em 4088 e restaura esses registradores a partir de `lw $v0,1043`. `$hi` e `$lo` ficam de fora. O alvo `os-user` recusa HD, LCD e `runat`. A troca de contexto de 18 palavras, o supervisor, o timer, o round-robin, o CRUD, a leitura do setor 0 e `IN`/`OUT` como trap continuam pendentes.
+
+## FAQ para apresentação
+
+Este FAQ separa o que pode ser demonstrado hoje do que ainda é projeto:
+
+- **IMPLEMENTADO**: há código integrado e teste correspondente;
+- **PARCIAL**: há uma parte funcional ou um esqueleto, mas o gerenciador ainda não cumpre o contrato completo;
+- **FASE 2/3**: é a solução projetada, ainda sem implementação. Numa apresentação, deve ser explicada no futuro, não como algo já executável.
+
+### Visão geral e integração
+
+#### 1. Qual é o objetivo do projeto e qual é o fluxo completo de execução? — IMPLEMENTADO
+
+O objetivo é executar programas C- sobre um processador próprio, tendo um
+kernel também escrito em C- entre os programas e o hardware. O caminho
+completo é:
+
+```text
+programa.cms
+  -> compilador C-
+  -> quádruplas
+  -> assembly MIPS-Lite
+  -> binário de 32 bits
+  -> setor do HD simulado
+  -> IMEM 3072–3839
+  -> execução pelo processador
+  -> HLT
+  -> retorno ao kernel e ao menu
+```
+
+O kernel inicia na IMEM, mostra o menu no LCD, copia do HD a janela de dados e
+o código do programa escolhido e chama `runat(3072)`. O `HLT` final do programa
+faz o processador voltar à instrução seguinte do kernel. Esse caminho está em
+`src/so.cms`, função `menu`, e é exercitado por
+`../processador/tb_menu.v`.
+
+#### 2. O projeto possui BIOS? Como ocorre o boot? — IMPLEMENTADO, sem BIOS
+
+Não há BIOS na arquitetura atual. Embora `docs/notes.md` e funções antigas
+como `bios_selftest` ainda mencionem uma BIOS, essa ideia foi descartada por
+priorização. A configuração da FPGA já inicializa a IMEM com
+`processador/so.txt`; o PC volta a zero no reset e começa diretamente no
+prólogo do kernel.
+
+```text
+reset -> PC = 0 -> kernel residente -> main -> seed_catalog
+      -> init_procs -> menu
+```
+
+KEY[0] reinicia PC, registradores e CSRs, mas não recarrega IMEM, RAM ou HD.
+Portanto, o termo correto na banca é **imagem de reset com o SO residente**, e
+não BIOS. As funções `bios_*` de `so.cms` são código legado e inalcançável.
+
+#### 3. Por que a arquitetura de memória é Harvard e como o SO divide a memória? — IMPLEMENTADO
+
+Ela é Harvard porque código e dados ficam em memórias diferentes: a IMEM é
+endereçada pelo PC e a RAM por `LW`/`SW`. Ambas possuem 4096 palavras de 32
+bits e endereçamento por palavra, por isso o PC avança de 1, não de 4.
+
+```text
+IMEM 0–3071       kernel residente
+IMEM 3072–3839    folha do programa atual
+IMEM 3840–4095    supervisor futuro
+
+RAM  0–1023       dados e pilha do kernel
+RAM  1024–1279    mailbox/contextos
+RAM  1280–1535    buffer de um setor
+RAM  1536–1791    dados e pilha do programa atual
+RAM  4088–4095    MMIO
+```
+
+Kernel e programa coexistem: uma troca de programa substitui somente a folha
+e a janela de dados. Isso evita recarregar o SO a cada troca de contexto.
+
+#### 3.1. Quais diferenças impedem tratar o MIPS-Lite como um MIPS convencional? — IMPLEMENTADO
+
+Este processador usa instruções próprias de 32 bits, mas não implementa a ABI
+nem a codificação do MIPS comercial. As diferenças que mais afetam o projeto
+são:
+
+- banco de 64 registradores, identificados por 6 bits;
+- imediato F2 de 14 bits;
+- PC e memórias endereçados por palavra, com `PC + 1`;
+- formatos próprios F1, F2, F3 e FI;
+- opcodes próprios para `HLT`, `IN` e `OUT`;
+- `$hi` e `$lo` nos índices 62 e 61, com bypass no datapath.
+
+Por isso, um binário produzido por um compilador MIPS comum não executaria
+neste núcleo. Compilador, encoder e processador precisam concordar
+exatamente sobre formatos, números de registrador e semântica de cada opcode.
+
+### Mudanças no compilador
+
+#### 4. Que mudanças no compilador foram necessárias para executar programas sob o SO? — IMPLEMENTADO
+
+Foi criado o alvo `--target=os-user`. Ele altera a base dos dados, a pilha e
+os saltos absolutos, além de impor limites e impedir acesso de usuário aos
+intrínsecos do kernel.
+
+```c
+/* compilador/asmgen.c */
+if (targetOsUser) {
+    fprintf(o, "    addi $gp,$zero,%d\n", USER_GP);
+    fprintf(o, "    addi $sp,$zero,%d\n", USER_SP);
+}
+```
+
+O alvo também limita o binário a 256 palavras, pois cada executável ocupa um
+setor do HD. Em `analyze.c`, chamadas a HD, LCD e `runat` são recusadas para
+`os-user`. O alvo padrão continua sendo usado para o kernel e para execução
+isolada durante o desenvolvimento.
+
+#### 5. Por que `J` e `JAL` recebem 3072, mas `BEQ` e `BNE` não? — IMPLEMENTADO
+
+`J` e `JAL` usam endereço absoluto. Como o programa é compilado como se
+começasse na palavra zero, o encoder soma a base da folha:
+
+```c
+/* compilador/encoder.c */
+if (targetOsUser)
+    *address += 3072;
+```
+
+Branches são relativos a `PC + 1`. Se a origem e o destino forem deslocados
+pela mesma base, a diferença entre eles não muda:
+
+```text
+offset = destino - PC_do_branch - 1
+```
+
+Somar 3072 ao branch seria um erro, pois transformaria uma distância pequena
+em um salto muito maior.
+
+#### 6. Para que servem o NOP inicial e o HLT final dos binários? — IMPLEMENTADO
+
+O encoder insere na palavra zero um `NOP` cujo campo de 26 bits guarda o
+tamanho total do binário. Esse metadado permite ao catálogo conhecer o
+tamanho sem executar uma instrução especial. O encoder também garante um
+`HLT` no fim.
+
+```c
+words[0] = makeF3(OP_NOP, (long)programSize);
+```
+
+Num programa isolado, `HLT` congela o PC. Quando o kernel usou `runat`, o
+retorno está armado e o mesmo `HLT` devolve o controle ao kernel. Assim, a
+instrução possui dois comportamentos conforme o estado de execução.
+
+#### 7. Como o compilador oferece serviços de hardware sem adicionar opcodes à ISA? — IMPLEMENTADO
+
+HD e LCD são acessados por **intrínsecos** que o compilador expande para
+`LW`/`SW` em endereços MMIO. Exemplos:
+
+```c
+st = loadHD(36, 1536);                 /* HD -> RAM */
+st = loadROM(cat_sector[idx], 3072);   /* HD -> IMEM */
+lcdshow(3, id, 0);                     /* tela RUN */
+runat(3072);                           /* entra na folha */
+```
+
+`loadHD`, por exemplo, grava setor em 4093, endereço em 4094 e comando em
+4092, depois consulta o status em 4095. A vantagem é reutilizar a ISA
+existente. A análise semântica restringe esses intrínsecos ao kernel.
+
+#### 8. Qual convenção de chamadas precisa ser preservada numa troca de contexto? — PARCIAL
+
+O compilador usa `$gp` para globais, `$sp` para a pilha, `$fp` para o frame,
+`$ra` para retorno, `$v0` para resultado, `$t0`–`$t9` para temporários e
+`$hi/$lo` para multiplicação e divisão. O frame implementado é:
+
+```text
+0($fp)   = $fp anterior
+1($fp)   = $ra
+2($fp)+  = parâmetros
+-1($fp)- = variáveis locais
+```
+
+Logo, salvar apenas o PC não basta: o processo voltaria à instrução correta
+com variáveis e retornos corrompidos. A Fase 2 prevê preservar PC mais 17
+registradores. O `runat` atual salva 15 registradores; ainda faltam
+`$hi/$lo` e o mecanismo completo de supervisor.
+
+#### 9. Que limitações atuais do compilador bloqueiam ou arriscam a Fase 2? — PARCIAL
+
+Há duas limitações principais:
+
+1. temporários `tN` são mapeados circularmente em `$t0`–`$t9` e não são
+   salvos em torno de `jal`; uma chamada pode sobrescrever um temporário vivo;
+2. globais e pilha dividem as 256 palavras da janela de usuário, mas a
+   verificação `dataUsed > 256` não inclui a profundidade da pilha.
+
+Exemplo problemático:
+
+```c
+return n * fat(n - 1);
+```
+
+O valor de `n` pode ficar num `$t` sobrescrito pela chamada recursiva. Para a
+Fase 2, o compilador deverá salvar temporários vivos ao redor de chamadas e
+reservar/verificar espaço de pilha no alvo `os-user`.
+
+### Mudanças no processador e no hardware do SO
+
+#### 10. Quais foram as principais mudanças no processador para contemplar o SO? — IMPLEMENTADO
+
+As mudanças centrais foram:
+
+- IMEM e RAM ampliadas para 4096 palavras;
+- substituição da ROM fixa por `inst_mem_rw`, gravável pelo HD;
+- HD setorizado em `hd_sim.v`, com DMA;
+- LCD controlado por `display_ctx`;
+- MMIO em 4088–4095;
+- mecanismo `pc_load` + `HLT` armado para executar uma folha e voltar;
+- sinais de stall/freeze durante HD, `IN` e `OUT`.
+
+O timer, o modo privilegiado, `ctrl` em 4090 e o supervisor ainda não fazem
+parte do núcleo implementado.
+
+#### 11. Como funciona o HD simulado e por que ele não é apenas outra RAM? — IMPLEMENTADO
+
+O HD representa persistência setorizada: 8 trilhas, 8 setores por trilha e
+256 palavras por setor. O software enxerga apenas o LBA de 0 a 63. A
+geometria equivale a:
+
+```text
+trilha          = LBA / 8
+setor_na_trilha = LBA % 8
+endereço_linear = LBA * 256 + deslocamento
+```
+
+O Verilog não precisa guardar trilha e setor separadamente: ele calcula
+diretamente `LBA * 256 + deslocamento`. O array `storage` é inicializado por
+`hd_image.txt` e marcado para uso de blocos M9K. Diferentemente de uma RAM
+comum, cada comando transfere um setor inteiro e possui estados `idle`,
+`busy`, `done` e `error`.
+
+#### 12. Como o DMA do HD se comunica com a CPU e por que ela é congelada? — IMPLEMENTADO
+
+O HD usa a porta B da RAM ou da IMEM para mover 256 palavras sem executar 256
+pares de `LW`/`SW`. Enquanto a transferência está ativa, `cpu_stall` segura o
+PC e `cpu_freeze` impede que uma instrução congelada repita uma escrita.
+
+```verilog
+assign cpu_freeze = (state != STATE_IDLE);
+assign cpu_stall  = (cpu_freeze && !retire) || accept;
+```
+
+No último ciclo a operação é aposentada e o PC avança exatamente uma vez.
+Os testbenches `tb_hd_map` e `tb_hd_stall` verificam limites, cópia e esse
+comportamento.
+
+#### 13. Como `runat` executa um programa e retorna ao kernel sem preempção? — IMPLEMENTADO
+
+`runat(3072)` salva registradores do kernel no mailbox e faz um `SW` em
+`pc_load` (4088). O hardware aceita o destino apenas se estiver entre 3072 e
+3839, guarda `PC + 1` em `kret` e arma o retorno.
+
+Quando o programa chega ao `HLT`, o processador:
+
+```text
+PC <- kret
+epc <- PC do HLT
+cause <- 2
+armed <- 0
+```
+
+O kernel então restaura seus registradores e continua após `runat`. Isso é
+uma chamada controlada de uma folha, não uma troca de contexto preemptiva.
+`tb_retorno` testa o mecanismo isoladamente e `tb_menu` testa o caminho
+integrado.
+
+#### 14. Como o menu usa o LCD sem enviar strings caractere por caractere? — IMPLEMENTADO
+
+O kernel grava em `display_ctx` (4091) apenas modo, ID e PID:
+
+```text
+bits  7:0  = modo
+bits 17:8  = ID
+bits 21:18 = PID
+```
+
+O controlador Verilog possui as mensagens fixas (`MENU`, `RUN`, `PROG`,
+etc.). Na leitura, o kernel recebe a seleção nos bits 26:22 e o ack de
+KEY[1] no bit 27. `lcdshow`, `lcdsel` e `lcdack` encapsulam esse protocolo.
+Isso contorna a ausência de strings no C- e reduz o trabalho do processador.
+
+Para não perder nem reaproveitar um Enter, o hardware mantém `disp_ack` até
+um `LW` observá-lo e marca essa leitura em `disp_seen`. Um `SW` no mesmo modo
+só limpa um ack já observado e preserva a seleção; uma troca de modo limpa
+ack e seleção. O Enter que libera um `IN`/`OUT` também não confirma o menu.
+Esses casos de corrida são verificados em `tb_lcd` e `tb_menu`.
+
+### Gerenciador de processos
+
+#### 15. O que o gerenciador de processos faz atualmente? — PARCIAL
+
+`so.cms` possui arrays paralelos para estado, PC, SP e bases, além de busca de
+slot, criação, destruição e uma busca circular preliminar. Arrays paralelos
+substituem `struct`, que não existe em C-.
+
+```c
+int proc_state[4];
+int proc_pc[4];
+int proc_sp[4];
+...
+```
+
+Entretanto, esse trecho ainda usa quatro PCBs e endereços do mapa antigo.
+Além disso, `create_process`, `context_switch` e `run_multitask` não são
+alcançados pelo menu funcional. O que existe hoje em execução é um PID 0
+implícito para a opção individual, não um gerenciador multitarefa completo.
+
+Há outros motivos para não reutilizar esse esqueleto sem revisão:
+`save_context` e `restore_context` estão vazias; `create_process` calcula
+bases antigas (`512 + pid*256` e `128 + pid*512`); e `context_switch` sempre
+recoloca o processo atual em pronto, mesmo se ele já tiver terminado.
+
+#### 16. Como será o escalonamento round-robin? — FASE 2
+
+Round-robin dá a cada processo pronto um quantum fixo e percorre os PIDs
+circularmente. A política já aparece em `next_process`, mas precisa ser
+adaptada de 4 para 10 entradas e ligada às interrupções.
+
+```c
+/* ideia já presente, ainda não integrada */
+candidate = modulo(current_pid + i, quantidade_de_pcbs);
+if (proc_state[candidate] == PRONTO) return candidate;
+```
+
+Ao fim de 50 instruções de usuário, o timer deverá causar uma trap. O kernel
+salvará o processo atual, escolherá o próximo estado `PRONTO` e pedirá ao
+supervisor que o despache. Se houver somente um processo executável, o timer
+pode ser desabilitado para evitar trocas inúteis.
+
+#### 17. O que é um PCB e quais dados precisam ser salvos neste projeto? — FASE 2
+
+PCB é o bloco de controle do processo. O desenho final prevê dez posições
+com estado, ID do programa, setor do executável e um contexto de 18 palavras:
+
+```text
+PC, $v0, $t0–$t9, $gp, $sp, $fp, $ra, $hi, $lo
+```
+
+O PID é o próprio índice do PCB, portanto não precisa ser armazenado dentro
+dele. `$zero` também não é salvo porque sempre lê zero. Bases de IMEM e RAM
+não precisam ficar por processo: todos usam as mesmas janelas 3072 e 1536;
+as cópias inativas ficam no HD.
+
+#### 18. Qual é a diferença entre escalonamento, troca de contexto e preempção? — FASE 2
+
+- **Escalonamento** é a política que escolhe o próximo PID; aqui,
+  round-robin.
+- **Troca de contexto** é o mecanismo que salva o estado do atual e restaura
+  o do próximo.
+- **Preempção** é retirar a CPU de um processo sem ele terminar,
+  normalmente por interrupção de timer.
+
+Na Fase 1 há retorno cooperativo no `HLT`, mas não preempção. Na Fase 2 o
+timer contará apenas instruções concluídas em modo usuário. Ele não deve
+interromper kernel, supervisor nem uma transferência atômica do HD.
+
+#### 19. Por que haverá um supervisor em Assembly além do kernel em C-? — FASE 2
+
+Uma interrupção pode ocorrer entre quaisquer instruções. Antes de executar
+código C-, é preciso preservar registradores sem usar esses mesmos
+registradores para montar um prólogo. O supervisor residente em 3840–4095
+será um mecanismo mínimo em Assembly capaz de salvar/restaurar contexto,
+trocar modo e entregar a causa ao kernel.
+
+Ele não decide políticas. Escolher PID, atualizar PCB, atender E/S e
+gerenciar arquivos continuam sendo funções do kernel. Essa separação evita
+transformar o supervisor em um segundo SO.
+
+### Gerenciador de memória
+
+#### 20. O projeto usa paginação ou segmentação? Como a memória é gerenciada? — PARCIAL
+
+Ainda não há paginação, MMU ou segmentação dinâmica. A solução é
+**particionamento fixo com swapping explícito**:
+
+- uma folha fixa de código em 3072–3839;
+- uma janela fixa de dados em 1536–1791;
+- um setor de dados no HD para cada PID;
+- kernel e mailbox em regiões residentes.
+
+Na troca futura, os 256 dados do PID atual serão gravados no setor
+`36 + PID`, e os dados do próximo serão carregados na mesma janela. É uma
+forma simples de virtualização por sobreposição: todos os programas enxergam
+os mesmos endereços, mas recebem conteúdos diferentes.
+
+#### 21. Como duas instâncias do mesmo programa poderão ter dados independentes? — FASE 2
+
+Elas podem compartilhar o mesmo setor de código, porque código é somente
+leitura, mas cada instância recebe PID, contexto e setor de dados próprios.
+Por exemplo:
+
+```text
+PID 2: código setor 22, dados setor 38
+PID 7: código setor 22, dados setor 43
+```
+
+Ambas executam o fatorial carregado em 3072, porém a troca carrega em
+1536–1791 a janela correspondente ao PID. Assim, pilha, globais e
+registradores não se misturam.
+
+#### 22. Quais são as limitações de proteção de memória atuais? — PARCIAL
+
+Hoje a separação é principalmente uma convenção do compilador. Não existe
+modo usuário, MMU nem bloqueio completo para um binário malformado acessar
+MMIO ou endereços do kernel. O alvo `os-user` impede isso no nível semântico,
+recusando os intrínsecos privilegiados, mas não protege contra código de
+máquina escrito manualmente.
+
+A Fase 2 adicionará modo usuário/privilegiado e supervisor protegido. Mesmo
+assim, proteção completa contra todo binário malformado não é objetivo da
+primeira versão.
+
+### Gerenciador de E/S e drivers
+
+#### 23. `input()` e `output()` já são syscalls? — NÃO; FASE 2
+
+Atualmente o compilador gera diretamente os opcodes `IN` e `OUT`, e o
+processador acessa switches e sete segmentos em qualquer contexto. A CPU
+espera KEY[1], portanto as operações são bloqueantes, mas ainda não entram no
+kernel.
+
+O contrato futuro reutiliza os mesmos opcodes:
+
+```text
+modo usuário       -> IN/OUT gera trap e registra causa/operandos
+modo privilegiado  -> IN/OUT acessa diretamente o periférico
+```
+
+O kernel atenderá a operação e despachará novamente o mesmo PID, preservando
+o saldo do quantum. Portanto, dizer que E/S já está modularizada por syscall
+seria incorreto; hoje há apenas os opcodes e a interface bloqueante.
+
+Como não há estado de processo `BLOQUEADO` nem outro processo despachável, a
+espera por KEY[1] paralisa a máquina inteira. No desenho futuro, `IN` e `OUT`
+continuarão bloqueantes para simplificar o projeto: o supervisor congela
+timer e execução, o kernel atende a operação e depois retoma o mesmo PID.
+
+#### 24. Qual é a diferença entre interrupção, trap e syscall neste projeto? — FASE 2
+
+Interrupção é um evento externo/assíncrono, como o fim do quantum. Trap é a
+transferência controlada para código privilegiado causada por um evento da
+execução, como `HLT`, `IN` ou `OUT`. Syscall é uma solicitação intencional de
+serviço do SO; aqui, `IN` e `OUT` de usuário funcionarão como syscalls por
+meio de traps.
+
+As causas planejadas devem ser registradas para que o kernel saiba se deve
+terminar um processo, atender E/S ou apenas reenfileirá-lo após o quantum.
+Hoje apenas a causa 2 do `HLT` armado é produzida.
+
+### Gerenciador de arquivos
+
+#### 25. Qual é a estrutura do sistema de arquivos projetado? — PARCIAL
+
+É um catálogo simples e plano no setor 0 do HD:
+
+```text
+palavras 0–3    assinatura, versão e capacidades
+palavras 4–19   8 diretórios, 2 palavras cada
+palavras 20–83  16 arquivos, 4 palavras cada
+```
+
+Cada arquivo guarda ativo, diretório, ID e tamanho. Sua posição determina o
+setor do executável: `20 + posição`. Não há subdiretórios nem conteúdo de
+arquivo com tamanho variável; cada executável ocupa um setor.
+
+O setor 0 já existe em `hd_image.txt`, mas o kernel ainda não o lê:
+`seed_catalog` cria em RAM uma lista fixa com os IDs 1–10 e setores 20–29.
+Logo, listar e executar os dez programas está parcial, mas a persistência do
+catálogo ainda é Fase 3.
+
+#### 26. Como funcionarão criar, renomear, mover e excluir? — FASE 3
+
+- **Criar/importar**: reservar uma entrada e um setor livre; a forma de
+  importar um novo executável pronto ainda está em aberto.
+- **Renomear**: alterar apenas o ID/nome nos metadados.
+- **Mover**: trocar o slot de diretório da entrada.
+- **Excluir**: zerar o campo ativo, sem compactar as entradas.
+
+O `delete_program` atual compacta os vetores e, por isso, contradiz o layout
+final: compactar mudaria implicitamente o setor associado a cada posição.
+Esse código é preliminar e não deve ser apresentado como CRUD concluído.
+
+Para persistência segura, o kernel montará um catálogo candidato no buffer
+1280–1535, gravará o setor inteiro com `storeHD(0, 1280)` e somente então
+publicará a mudança em RAM. Isso evita deixar metade dos metadados antigos e
+metade novos.
+
+### Modularização, testes e limites
+
+#### 27. Como existe modularização se o kernel está em um único arquivo? — PARCIAL
+
+O C- não possui `#include`, linker, strings, `struct` ou compilação
+multi-arquivo. Por isso o kernel é monolítico fisicamente, mas separado
+logicamente em shell, processos, memória, E/S, arquivos e abstrações de
+hardware.
+
+No projeto completo também há separação por responsabilidade:
+
+```text
+compilador/  -> linguagem, ABI e geração dos binários
+processador/ -> CPU, memórias e periféricos Verilog
+so/          -> kernel e documentação
+```
+
+Não se deve duplicar Verilog dentro de `so/`; o kernel usa contratos MMIO
+oferecidos pelo processador.
+
+#### 28. Como sabemos que a execução individual funciona? — IMPLEMENTADO em simulação
+
+Os testes relevantes são:
+
+- `tb_hd_map`: geometria, limites e cópia HD→IMEM;
+- `tb_hd_stall`: congelamento durante o DMA;
+- `tb_lcd`: protocolo do menu e MMIO;
+- `tb_retorno`: `runat`, `HLT` armado, `epc` e causa;
+- `tb_menu`: boot real, menu, carga da área, entradas 4 e 6, saída 12,
+  retorno ao menu e carga de outro setor.
+
+O trecho mais próximo de um teste ponta a ponta é:
+
+```verilog
+if (uut.out_reg !== 32'd12)
+    $display("FAIL area");
+else
+    $display("PASS area 4x6/2 = 12");
+```
+
+Todos passam no Icarus. Isso não equivale a validação física: o mapa atual de
+4096 palavras ainda precisa ser sintetizado e executado na DE2-115.
+
+Também é preciso separar documentação histórica do estado atual. Relatórios
+ou binários que descrevem 1024 palavras, ABI sem `$fp` ou `HLT` liberado por
+Enter pertencem à versão antiga. Para responder sobre o estado implementado,
+a ordem de confiança é: código atual, testbenches atuais, README/contexto
+consolidados e, por último, relatórios legados.
+
+#### 29. Qual é o maior risco para executar o projeto na FPGA? — PARCIAL
+
+IMEM e RAM fazem leitura assíncrona, e a RAM possui duas portas de escrita no
+mesmo `always`. Nesse estilo, o Quartus pode não inferir blocos M9K e tentar
+implementar cerca de 262 mil bits com flip-flops, mais que os recursos
+disponíveis.
+
+```verilog
+assign rdata_a = mem[addr_a];
+assign rdata_b = mem[addr_b];
+```
+
+O último `.sof` é anterior ao mapa de 4096 palavras. Portanto, a resposta
+honesta é: a Fase 1 está validada funcionalmente em simulação, mas ainda há
+um risco de síntese que precisa ser resolvido com memórias síncronas e novo
+relatório de fit.
+
+#### 30. O que está pronto e o que falta, em uma resposta curta de banca? — RESUMO
+
+**Pronto:** compilação C- para MIPS-Lite, alvo `os-user`, dez binários no HD,
+IMEM gravável, HD com DMA, LCD, menu, execução individual e retorno ao
+kernel, todos validados em simulação.
+
+**Parcial:** esqueletos de PCB, round-robin e CRUD em RAM; mapa e contratos da
+multitarefa; causa de retorno por `HLT`.
+
+**Falta:** timer, modo privilegiado, supervisor, contexto completo de 18
+palavras, preempção, `IN`/`OUT` como syscall, dez PCBs reais, leitura e commit
+do catálogo, CRUD persistente, síntese do mapa novo e teste na placa.
+
+Essa separação é central: o projeto já demonstra a integração
+compilador–SO–processador, mas os gerenciadores completos pertencem às Fases
+2 e 3.

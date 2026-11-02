@@ -20,6 +20,7 @@
 \usepackage{array}
 \usepackage{listings}
 \usepackage{xcolor}
+\usepackage{tikz}
 
 % Citações no padrão utilizado nos relatórios anteriores
 \usepackage[brazilian,hyperpageref]{backref}
@@ -105,11 +106,15 @@
 \imprimirfolhaderosto*
 
 \begin{resumo}
-Este relatório apresenta o desenvolvimento de um projeto de um sistema operacional para um processador MIPS-Lite, contendo gerenciamento de processos, memória, sistema de arquivos e dispositivos de entrada e saída. O sistema consiste em um kernel monolítico escrito em C-, organizado em um único arquivo. O desenho prevê escalonamento \emph{round-robin}, quantum fixo e \emph{swapping} entre as memórias do processador e um disco rígido simulado em Verilog. A memória de instruções e a RAM possuem 4096 palavras. O supervisor previsto para a região protegida ainda não está na imagem. O projeto utiliza até oito diretórios planos e dezesseis executáveis, inicia diretamente no kernel após o \emph{reset} e especifica chamadas de sistema bloqueantes para mediar a E/S dos programas. A opção 1 já executa um programa sem esses mecanismos pendentes.
+Este relatório apresenta o desenvolvimento de um projeto de um sistema operacional para um processador MIPS-Lite, contendo gerenciamento de processos, memória, sistema de arquivos e dispositivos de entrada e saída. O sistema consiste em um kernel monolítico escrito em C-, organizado em um único arquivo. O desenho prevê escalonamento \emph{round-robin}, quantum fixo e \emph{swapping} entre as memórias do processador e um disco rígido simulado em Verilog. A memória de instruções e a RAM possuem 4096 palavras. O supervisor previsto para a região protegida ainda não está na imagem. O projeto prevê até oito diretórios planos e dezesseis executáveis, inicia diretamente no kernel após o \emph{reset} e especifica chamadas de sistema bloqueantes para mediar a E/S dos programas. A opção 1 já executa um programa sem esses mecanismos pendentes.
 
 \noindent
 \textbf{Palavras-chave}: sistema operacional. processos. memória. sistema de arquivos. entrada e saída. MIPS-Lite.
 \end{resumo}
+
+\pdfbookmark[0]{\listfigurename}{lof}
+\listoffigures*
+\clearpage
 
 \pdfbookmark[0]{\listtablename}{lot}
 \listoftables*
@@ -127,7 +132,7 @@ Um sistema computacional é formado por recursos de processamento, memória e di
 
 O presente trabalho define um sistema operacional para o processador MIPS-Lite implementado em Verilog nas etapas anteriores do projeto. O processador possui arquitetura baseada em MIPS, instruções de 32 bits e memórias separadas para dados e instruções. O software é produzido pelo compilador C- do projeto, que realiza as etapas de análise do código-fonte e gera o binário utilizado na inicialização da memória de instruções.
 
-O contrato do sistema substitui a ROM simples por uma memória de instruções gravável e acrescenta disco rígido simulado, temporizador de \emph{quantum}, mecanismo de interrupção e registradores de controle acessíveis pelo kernel. O sistema operacional ocupa a memória de instruções após o \emph{reset}, enquanto os programas permanecem no disco e são carregados sob demanda.
+O contrato do sistema substitui a ROM simples por uma memória de instruções gravável e acrescenta um disco rígido simulado e registradores de controle mapeados em memória. Desses registradores, têm efeito hoje o \texttt{pc\_load} (4088), a causa (4089), restrita à causa 2 do \texttt{HLT} armado, o contexto do LCD (4091) e os registradores do disco (4092 a 4095); o registrador de controle em 4090 ainda não é decodificado. O temporizador de \emph{quantum}, o modo privilegiado e o supervisor que receberia as interrupções são previstos e ainda não estão no \emph{hardware}. O sistema operacional ocupa a memória de instruções após o \emph{reset}, enquanto os programas permanecem no disco e são carregados sob demanda.
 
 Além de integrar os componentes desenvolvidos nos laboratórios anteriores, a construção desse sistema permite observar, em uma plataforma reduzida, problemas que normalmente permanecem ocultos por sistemas operacionais de propósito geral. A preservação de contexto, a arbitragem da CPU, a movimentação de imagens entre memória e disco e a mediação da entrada e saída tornam explícita a relação entre arquitetura de computadores, compiladores e software de sistema. O projeto possui, portanto, motivação didática e técnica: validar esses mecanismos em um processador conhecido e compreender os compromissos impostos por recursos limitados.
 
@@ -169,7 +174,7 @@ Um processo é um programa em execução, acompanhado do estado necessário para
 
 \subsection{Estados de um processo}
 
-No kernel deste projeto, o vetor \texttt{proc\_state} representa os estados dos processos. O valor 0 indica uma posição livre na tabela, o valor 1 identifica um processo pronto e o valor 2 identifica o processo em execução. Ao final de um programa, sua posição é liberada e pode ser utilizada por um novo processo.
+No kernel deste projeto, o vetor \texttt{proc\_state} representa os estados dos processos. O valor 0 indica uma posição livre na tabela, o valor 1 identifica um processo pronto e o valor 2 identifica o processo em execução. No desenho, ao final de um programa sua posição é liberada e pode ser utilizada por um novo processo; a função \texttt{destroy\_process} já faz essa liberação. A opção 1 atual, porém, não ocupa posição na tabela: executa o programa sem criar PCB.
 
 \subsection{Escalonamento da CPU}
 
@@ -177,7 +182,7 @@ O escalonador escolhe qual processo pronto deverá utilizar a CPU. Entre os algo
 
 No escalonamento \emph{round-robin}, os processos prontos são mantidos em uma fila circular. Cada processo executa durante uma fatia de tempo denominada \emph{quantum}. Quando essa fatia termina, o processo é interrompido e inserido novamente no final da fila, desde que ainda não tenha concluído. A técnica é apropriada para sistemas interativos por impedir que um único programa mantenha a CPU indefinidamente \cite{arpaci2018}.
 
-O tamanho do \emph{quantum} influencia o funcionamento do sistema. Um valor muito pequeno aumenta o número de trocas de contexto e o custo de gerenciamento. Um valor muito grande aproxima o comportamento do escalonamento não preemptivo. Na arquitetura adotada, o \emph{quantum} é fixado em 50 instruções concluídas de usuário. Quando existe somente um processo pronto ou executando, o temporizador é desabilitado, pois uma preempção apenas devolveria a CPU ao mesmo processo.
+O tamanho do \emph{quantum} influencia o funcionamento do sistema. Um valor muito pequeno aumenta o número de trocas de contexto e o custo de gerenciamento. Um valor muito grande aproxima o comportamento do escalonamento não preemptivo. Na arquitetura adotada, o \emph{quantum} previsto é fixo em 50 instruções concluídas de usuário. Quando existir somente um processo pronto ou executando, o temporizador, ainda não implementado, ficará desabilitado, pois uma preempção apenas devolveria a CPU ao mesmo processo.
 
 \subsection{Troca de contexto}
 
@@ -221,7 +226,7 @@ Na alocação encadeada, cada bloco indica a localização do próximo. O arquiv
 
 \subsection{Operações sobre arquivos}
 
-As operações fundamentais são criar, ler, atualizar e remover, frequentemente representadas pela sigla CRUD. No sistema definido, a criação corresponde à importação de um executável preparado pelo empacotador; a leitura compreende a listagem e o carregamento; a atualização abrange a troca de seu identificador numérico e sua movimentação entre diretórios; e a remoção desativa a entrada correspondente.
+As operações fundamentais são criar, ler, atualizar e remover, frequentemente representadas pela sigla CRUD. No sistema definido, a criação corresponde à adição de um executável pronto, cujo mecanismo ainda não foi decidido; a leitura compreende a listagem e o carregamento; a atualização abrange a troca de seu identificador numérico e sua movimentação entre diretórios; e a remoção desativa a entrada correspondente.
 
 \section{Gerenciamento de Dispositivos de Entrada e Saída}
 
@@ -262,7 +267,7 @@ A seção do menu registra o que a simulação já percorre. As seções seguint
 
 O menu exercitado em simulação está em \texttt{so.cms}. O compilador traduz três chamadas para leituras e escritas da palavra no endereço 4091, sem opcode novo na ISA. \texttt{lcdshow(modo, id, pid)} monta e grava a palavra. \texttt{lcdack()} devolve o bit 27, zero ou um. \texttt{lcdsel()} devolve o índice da opção, nos bits 26 a 22. O zero é o primeiro item. O C- não tem operador de deslocamento; as máscaras são emitidas pelo gerador de \emph{assembly}, com \texttt{sl}, \texttt{sr} e \texttt{andi}.
 
-Na escrita, o modo ocupa os bits 7 a 0, o identificador do programa os bits 17 a 8 e o PID os bits 21 a 18. A leitura devolve esses mesmos campos, o índice e o bit de confirmação. Os bits 31 a 28 ficam em zero. Toda escrita apaga a confirmação. Se o modo mudar, o índice volta a zero; se o modo for o mesmo, o índice permanece. \texttt{KEY[1]} liga a confirmação e não mexe no índice, desde que a CPU não esteja parada em \texttt{IN} ou \texttt{OUT}. O pulso que solta uma dessas duas instruções entrega o dado e não confirma o menu. Nesse mesmo ciclo, uma seta não altera o índice. \texttt{KEY[2]} e \texttt{KEY[3]} só andam quando a tela tem mais de um item e a CPU não está nessa espera. \texttt{KEY[0]} é o \emph{reset} da placa, ativo em nível baixo. O menu não o lê.
+Na escrita, o modo ocupa os bits 7 a 0, o identificador do programa os bits 17 a 8 e o PID os bits 21 a 18. A leitura devolve esses mesmos campos, o índice e o bit de confirmação. Os bits 31 a 28 ficam em zero. Se o modo mudar, a escrita apaga a confirmação e o índice volta a zero. Se o modo for o mesmo, o índice permanece e a escrita só apaga a confirmação que uma leitura já viu em um. \texttt{KEY[1]} liga a confirmação e não mexe no índice, desde que a CPU não esteja parada em \texttt{IN} ou \texttt{OUT}. O pulso que solta uma dessas duas instruções entrega o dado e não confirma o menu. Nesse mesmo ciclo, uma seta não altera o índice. \texttt{KEY[2]} e \texttt{KEY[3]} só andam quando a tela tem mais de um item e a CPU não está nessa espera. \texttt{KEY[0]} é o \emph{reset} da placa, ativo em nível baixo. O menu não o lê.
 
 O painel tem duas linhas de dezesseis caracteres. O texto sai de um catálogo fixo no Verilog. O programa escolhe o modo, o identificador e o PID; não envia caracteres. A \autoref{tab:lcd} lista as telas.
 
@@ -296,7 +301,7 @@ Na segunda opção, QUANTOS pergunta quantos programas entram na rodada. O valor
 
 O menu não chama \texttt{input()} nem \texttt{output()}. As duas instruções também esperam \texttt{KEY[1]} e, enquanto esperam, a CPU não caminha pelas opções. O autoteste antigo, que fazia \texttt{output(111)}, não é chamado na entrada. Os códigos numéricos de sete segmentos que marcavam ``menu pronto'' ou ``insira o identificador'' pertenciam àquele menu por \emph{switches}. O menu atual não os emite. O sete segmentos recebe o \texttt{OUT} do programa em execução. No \texttt{tb\_menu}, a área produz base$\times$altura/2.
 
-A reescrita do identificador na lista apaga a confirmação, porque toda escrita em 4091 o faz. Se \texttt{KEY[1]} chegasse no meio dessas poucas instruções, o aperto se perderia e a lista esperaria outro. A janela dura cerca de trinta instruções. Com o relógio da CPU em aproximadamente 5~kHz, são cerca de 6~ms, e só logo depois que uma seta mudou o índice. O tratamento de rebote do botão já espera cerca de 20~ms. Por isso o rebote não foi alongado.
+A reescrita do identificador na lista é uma escrita em 4091 no mesmo modo. Entre a última leitura da confirmação, que deu zero, e essa escrita há 26 instruções, cerca de 5~ms com o relógio da CPU em aproximadamente 5~kHz. Para que um \texttt{KEY[1]} nessa janela não se perca, a escrita no mesmo modo só apaga a confirmação que uma leitura de 4091 já viu em um; um aperto ainda não lido, ou que chega no ciclo da própria escrita, continua valendo e a lista o atende na volta seguinte do laço. A troca de modo apaga sempre, para que um aperto não confirme uma tela que o usuário ainda não viu. Na segunda opção, a escrita que mantém a lista entre uma escolha e outra apaga a confirmação já lida, e o próximo programa exige um novo aperto.
 
 A opção 1 carrega o executável, salta para a folha e volta no \texttt{HLT}. A escrita em \texttt{pc\_load} (4088) só arma quando o destino está em 3072--3839 e o HD não está congelado: grava PC+1 em \texttt{kret} e na RAM 1042 e desvia. Fora da folha a escrita é ignorada; o sentinela 99 do \texttt{tb\_lcd} continua. O \texttt{HLT} armado volta a esse PC, grava a causa 2 em 4089 e desarma. O \texttt{HLT} sem arma congela o PC e acende LEDR[16]. A leitura de 4088 devolve \texttt{epc}. \texttt{ctrl} (4090) continua sem efeito. A troca de contexto de 18 palavras, com \texttt{\$hi} e \texttt{\$lo}, o supervisor, o timer e a leitura do setor 0 não fazem parte dessa opção.
 
@@ -308,35 +313,56 @@ O arquivo único do kernel é dividido nas seguintes camadas lógicas:
     \item \textbf{shell e menu}: recebem comandos do usuário e apresentam os resultados;
     \item \textbf{serviços do kernel}: realizam gerenciamento de processos, memória, arquivos e E/S;
     \item \textbf{abstração de hardware}: concentra os acessos aos registradores mapeados em memória;
-    \item \textbf{módulos do processador}: fornecem memória, disco, temporizador, interrupções e periféricos em Verilog.
+    \item \textbf{módulos do processador}: fornecem memória, disco e periféricos em Verilog; temporizador e interrupções são previstos e ainda não existem.
 \end{enumerate}
 
-Essa separação é lógica, pois todos os serviços em C- são compilados como um único programa. Os módulos de \emph{hardware} pertencem ao projeto do processador, enquanto o código C- concentra os serviços executados pelo kernel.
+Essa separação é lógica, pois todos os serviços em C- são compilados como um único programa. Os módulos de \emph{hardware} pertencem ao projeto do processador, enquanto o código C- concentra os serviços executados pelo kernel. A \autoref{fig:camadas} resume as camadas e indica, com contorno tracejado, os componentes ainda ausentes.
 
-O processador mantém um bit de modo controlado pelas \emph{traps} e pelo supervisor. Em modo usuário, operações privilegiadas não são executadas e as instruções \texttt{IN} e \texttt{OUT} solicitam serviços do kernel. Em modo privilegiado, kernel e supervisor acessam os mecanismos necessários à gerência do sistema. Essa distinção não constitui uma MMU e não pretende proteger o sistema contra binários manuais malformados.
+\begin{figure}[H]
+\centering
+\caption{Camadas lógicas do sistema}
+\label{fig:camadas}
+\begin{tikzpicture}[
+    camada/.style={draw, text width=12.5cm, minimum height=0.9cm, align=center, font=\footnotesize},
+    previsto/.style={camada, dashed}
+]
+\node[camada]   (shell) at (0,4.5) {Shell e menu no LCD (\texttt{menu}, \texttt{choose\_program}, \texttt{wait\_choice})};
+\node[camada]   (serv)  at (0,3.3) {Serviços do kernel: processos, memória, arquivos e E/S (\texttt{so.cms})};
+\node[camada]   (hal)   at (0,2.1) {Abstração de \emph{hardware}: \texttt{loadHD}, \texttt{loadROM}, \texttt{storeHD}, \texttt{lcdshow}, \texttt{runat}};
+\node[camada]   (hw)    at (0,0.9) {Processador MIPS-Lite: \texttt{inst\_mem\_rw}, \texttt{data\_ram}, \texttt{hd\_sim}, \texttt{lcd\_controller}};
+\node[previsto] (prev)  at (0,-0.3) {Previstos: temporizador de \emph{quantum}, modo privilegiado, supervisor em 3840--4095};
+\draw[->] (shell) -- (serv);
+\draw[->] (serv) -- (hal);
+\draw[->] (hal) -- node[right, font=\scriptsize] {MMIO 4088--4095} (hw);
+\end{tikzpicture}
+\legend{Fonte: Autor.}
+\end{figure}
+
+No desenho, o processador manterá um bit de modo controlado pelas \emph{traps} e pelo supervisor. Em modo usuário, operações privilegiadas não seriam executadas e as instruções \texttt{IN} e \texttt{OUT} solicitariam serviços do kernel. Em modo privilegiado, kernel e supervisor acessariam os mecanismos necessários à gerência do sistema. Esse bit ainda não existe no \emph{hardware}. A distinção prevista não constitui uma MMU e não pretende proteger o sistema contra binários manuais malformados.
 
 \section{Gerenciamento de Processos}
 
-O gerenciamento de processos é a função aprofundada neste projeto. O diretório contém até dezesseis programas, dez deles presentes na imagem inicial. O usuário seleciona de um a dez processos por rodada e pode escolher o mesmo programa mais de uma vez. A folha da vez e a janela de dados mantêm somente o ocupante em execução; as demais imagens ficam no disco. A opção 1 ainda não cria vários processos.
+O gerenciamento de processos é a função aprofundada neste projeto. O diretório previsto contém até dezesseis programas, dez deles presentes na imagem inicial. No desenho, o usuário seleciona de um a dez processos por rodada e pode escolher o mesmo programa mais de uma vez. A folha da vez e a janela de dados mantêm somente o ocupante em execução; as demais imagens ficam no disco. Hoje a opção 2 pergunta a quantidade, deixa escolher os identificadores na lista e mostra ERR, sem criar processos; a opção 1 executa um único programa sem PCB.
 
 \subsection{Bloco de Controle de Processo}
 
-Devido à ausência de estruturas em C-, cada campo do PCB é armazenado em um vetor. A posição de mesmo índice nos diferentes vetores representa um processo. A representação registrada no kernel contém:
+Devido à ausência de estruturas em C-, cada campo do PCB é armazenado em um vetor. A posição de mesmo índice nos diferentes vetores representa um processo. O desenho prevê dez PCBs, cada um com:
 
 \begin{itemize}
-    \item \texttt{proc\_state}, para os códigos livre, pronto e executando;
-    \item identificador numérico e setor do executável;
-    \item PC lógico de retomada;
-    \item área de contexto com os registradores usados pela ABI do compilador.
+    \item estado, com os códigos livre, pronto e executando;
+    \item identificador numérico do programa e setor do executável;
+    \item 18 palavras de contexto: o PC de retomada e os registradores usados pela ABI do compilador.
 \end{itemize}
 
-O PID é o índice do PCB e as bases das imagens são fixas, por isso esses campos não precisam ser armazenados. O contrato de troca preserva PC, \texttt{\$v0}, \texttt{\$t0}--\texttt{\$t9}, \texttt{\$gp}, \texttt{\$sp}, \texttt{\$fp}, \texttt{\$ra}, \texttt{\$hi} e \texttt{\$lo}. São 17 registradores e o PC, totalizando 18 palavras por processo. Esse é o conjunto mínimo suficiente para a ABI atual; novos registradores somente poderão ser usados pelo compilador após a revisão desse contrato.
+O estado atual de \texttt{so.cms} é diferente e preliminar. Há quatro posições, nos vetores \texttt{proc\_state}, \texttt{proc\_pc}, \texttt{proc\_sp}, \texttt{proc\_rom\_base} e \texttt{proc\_data\_base}, e um vetor \texttt{ctx} de 64 palavras, isto é, quatro contextos de 16 registradores. As bases gravadas por \texttt{create\_process} ainda seguem o mapa anterior às memórias de 4096 palavras, e \texttt{save\_context} e \texttt{restore\_context} estão vazias. Nenhuma dessas funções é chamada pelo menu; apenas \texttt{init\_procs} é executada na inicialização e zera as quatro posições.
 
-O kernel cria um processo no primeiro PID livre. O contexto inicial previsto tem o PC na folha e os registradores zerados, com exceção de \texttt{\$gp=1536} e \texttt{\$sp=1791}. A opção 1 não chama \texttt{create\_process}: carrega o setor 36 em 1536 e entra em 3072 pelo prólogo do próprio programa. O setor de dados associado ao PID também é zerado na criação ou reutilização previstas. O mesmo executável pode originar mais de um processo porque cada instância possui PID, contexto e setor de dados próprios.
+No desenho, o PID é o índice do PCB e as bases das imagens são fixas, por isso esses campos não precisam ser armazenados. O contrato de troca preserva PC, \texttt{\$v0}, \texttt{\$t0}--\texttt{\$t9}, \texttt{\$gp}, \texttt{\$sp}, \texttt{\$fp}, \texttt{\$ra}, \texttt{\$hi} e \texttt{\$lo}. São 17 registradores e o PC, totalizando 18 palavras por processo. Esse é o conjunto mínimo suficiente para a ABI atual; novos registradores somente poderão ser usados pelo compilador após a revisão desse contrato.
+
+No desenho, o kernel cria um processo no primeiro PID livre, busca que \texttt{find\_free\_slot} já realiza sobre as quatro posições atuais. O contexto inicial previsto tem o PC na folha e os registradores zerados, com exceção de \texttt{\$gp=1536} e \texttt{\$sp=1791}. A opção 1 não chama \texttt{create\_process}: carrega o setor 36 em 1536 e entra em 3072 pelo prólogo do próprio programa. O setor de dados associado ao PID também é zerado na criação ou reutilização previstas. O mesmo executável pode originar mais de um processo porque cada instância possui PID, contexto e setor de dados próprios.
 
 \subsection{Escalonador \emph{round-robin}}
 
-A fila de prontos é representada pelo próprio vetor fixo de dez PCBs. Quando o processo atual encerra seu \emph{quantum}, o temporizador produz uma interrupção, o contexto é salvo e o processo volta ao estado pronto. O escalonador percorre circularmente as posições a partir do PID seguinte ao atual e escolhe a primeira marcada como pronta, sem manter uma fila FIFO separada.
+No desenho, a fila de prontos é representada pelo próprio vetor fixo de dez PCBs. Quando o processo atual encerrar seu \emph{quantum}, o temporizador produzirá uma interrupção, o contexto será salvo e o processo voltará ao estado pronto. O escalonador percorre circularmente as posições a partir do PID seguinte ao atual e escolhe a primeira marcada como pronta, sem manter uma fila FIFO separada. Essa busca já existe em \texttt{next\_process}, sobre as quatro posições atuais, e é usada por \texttt{context\_switch}; nenhuma das duas funções é chamada pelo menu.
 
 O algoritmo abaixo é o contrato da multitarefa. A opção 1 não o executa: não há supervisor, timer nem \texttt{DISPATCH}.
 
@@ -354,7 +380,7 @@ O temporizador previsto contaria somente instruções concluídas de programas d
 
 \subsection{Interrupções e término}
 
-Temporizador, término, entrada, saída, cancelamento e operação privilegiada inválida são tratados como \emph{traps}. As causas são, respectivamente, 1 para fim do \emph{quantum}, 2 para \texttt{HLT}, 3 para \texttt{IN}, 4 para \texttt{OUT}, 5 para cancelamento e 6 para operação inválida; zero representa ausência de causa. Timer, \texttt{IN} e \texttt{OUT} salvam o PC da próxima instrução. \texttt{HLT}, cancelamento e operação inválida registram o PC corrente apenas para diagnóstico, pois o processo não será retomado. Se \texttt{HLT} e timer coincidirem, \texttt{HLT} possui prioridade e o kernel libera o PCB.
+O contrato do supervisor prevê cinco causas de \emph{trap}: fim do \emph{quantum}, término por \texttt{HLT}, entrada por \texttt{IN}, saída por \texttt{OUT} e cancelamento por \texttt{KEY[0]}. Hoje só o término é produzido: o \texttt{HLT} armado grava o código 2 em \texttt{cause} (4089), registrador que vale zero após o \emph{reset}. Os códigos das outras quatro causas ainda não foram fixados. Timer, \texttt{IN} e \texttt{OUT} salvarão o PC da próxima instrução. \texttt{HLT} e cancelamento registram o PC corrente apenas para diagnóstico, pois o processo não será retomado; no \texttt{HLT} armado atual, esse PC fica em \texttt{epc}, lido em 4088. Se \texttt{HLT} e timer coincidirem, \texttt{HLT} possui prioridade e o kernel libera o PCB.
 
 O supervisor sempre salva a RAM do processo antes de trazer o kernel, inclusive em \texttt{HLT} e cancelamento. Em \texttt{IN}, o hardware registra o índice do registrador de destino; em \texttt{OUT}, registra o valor-fonte. O kernel executa sua própria operação privilegiada de E/S e, no caso de entrada, copia o valor recebido para o registrador correspondente no contexto salvo. Em seguida, despacha novamente o mesmo PID, sem alterar sua posição no \emph{round-robin}; o saldo do quantum é preservado. O \texttt{HLT} não exige confirmação adicional de saída.
 
@@ -364,7 +390,48 @@ Na arquitetura-alvo, \texttt{KEY[0]} é um pedido de cancelamento, distinto da r
 
 \section{Gerenciamento de Memória}
 
-O processador utiliza arquitetura Harvard, com memória de instruções e memória de dados separadas. Ambas possuem 4096 palavras de 32 bits e endereçamento de 12 bits. O kernel permanece em 0--3071. A folha 3072--3839 e a janela de dados 1536--1791 são as regiões substituídas quando um programa entra.
+O processador utiliza arquitetura Harvard, com memória de instruções e memória de dados separadas. Ambas possuem 4096 palavras de 32 bits e endereçamento de 12 bits. O kernel permanece em 0--3071. A folha 3072--3839 e a janela de dados 1536--1791 são as regiões substituídas quando um programa entra. A \autoref{fig:mapa} mostra as três memórias lado a lado, fora de escala; as regiões tracejadas são previstas e ainda vazias.
+
+\begin{figure}[H]
+\centering
+\caption{Mapa da IMEM, da RAM e do disco simulado}
+\label{fig:mapa}
+\newcommand{\regiao}[6]{%
+    \draw[#6] (#1,#2) rectangle ({#1+2.9},#3);
+    \node[font=\scriptsize, align=center] at ({#1+1.45},{(#2+#3)/2}) {#4};
+    \node[font=\tiny, left] at (#1,#2) {#5};
+}
+\begin{tikzpicture}
+% IMEM, 4096 palavras
+\node[font=\small\bfseries] at (1.45,7.0) {IMEM};
+\regiao{0}{0.0}{3.6}{kernel residente\\(\texttt{so.txt}: 0--1334;\\guarda \texttt{J 3071})}{0}{}
+\regiao{0}{3.6}{5.2}{folha da vez\\(programa)}{3072}{fill=gray!15}
+\regiao{0}{5.2}{6.4}{supervisor\\(previsto, em zero)}{3840}{dashed}
+\node[font=\tiny, left] at (0,6.4) {4095};
+% RAM, 4096 palavras
+\node[font=\small\bfseries] at (5.45,7.0) {RAM};
+\regiao{4}{0.0}{1.6}{dados e pilha\\do kernel}{0}{}
+\regiao{4}{1.6}{2.4}{\emph{mailbox}}{1024}{}
+\regiao{4}{2.4}{3.2}{\emph{buffer} de setor}{1280}{}
+\regiao{4}{3.2}{4.0}{janela de dados}{1536}{fill=gray!15}
+\regiao{4}{4.0}{5.8}{reservado}{1792}{}
+\regiao{4}{5.8}{6.4}{MMIO}{4088}{}
+\node[font=\tiny, left] at (4,6.4) {4095};
+% HD, 64 setores
+\node[font=\small\bfseries] at (9.45,7.0) {HD (setores)};
+\regiao{8}{0.0}{0.6}{diretório}{0}{}
+\regiao{8}{0.6}{1.6}{código do kernel\\(hoje em NOP)}{1}{}
+\regiao{8}{1.6}{2.3}{dados do kernel}{13}{}
+\regiao{8}{2.3}{2.9}{reservado}{17}{}
+\regiao{8}{2.9}{4.2}{executáveis\\(10 em 20--29)}{20}{fill=gray!15}
+\regiao{8}{4.2}{5.2}{janelas dos\\PIDs 0--9}{36}{}
+\regiao{8}{5.2}{6.4}{reservado}{46}{}
+\node[font=\tiny, left] at (8,6.4) {63};
+% Transferências por DMA
+\node[font=\scriptsize, align=center] at (5.45,-0.6) {DMA de um setor de 256 palavras: \texttt{hd\_cmd}=1, HD$\rightarrow$RAM; \texttt{hd\_cmd}=2, HD$\rightarrow$IMEM; \texttt{hd\_cmd}=3, RAM$\rightarrow$HD};
+\end{tikzpicture}
+\legend{Fonte: Autor.}
+\end{figure}
 
 \subsection{Memória de instruções}
 
@@ -406,9 +473,11 @@ O sistema de arquivos armazena programas executáveis em até oito diretórios p
 
 O software endereça o disco por LBA entre 0 e 63. Internamente, a tradução utiliza \texttt{track = sector\_lba / 8}, \texttt{sector\_in\_track = sector\_lba \% 8} e \texttt{flat\_addr = sector\_lba * 256 + word\_offset}.
 
-O setor zero está especificado como catálogo durável. As seis primeiras palavras guardariam assinatura, versão, geração, capacidade de diretórios, capacidade de arquivos e soma de verificação. Esta última é o complemento de dois da soma das demais 255 palavras, de modo que a soma do setor inteiro resulte em zero. Em seguida existem oito entradas de diretório e dezesseis entradas de arquivo. O setor do executável é derivado da posição de sua entrada, entre os setores 20 e 35. O setor 46 está especificado como cópia-espelho. A opção 1 não lê esse catálogo: usa vetores fixos e os programas dos setores 20 a 29.
+O setor zero é o catálogo durável e ocupa 84 palavras; o restante do setor fica em zero. As quatro primeiras palavras formam o cabeçalho: assinatura 20261013, versão 1, capacidade de diretórios 8 e capacidade de arquivos 16. As palavras 4 a 19 guardam oito pares de diretório, com os campos ativo e nome numérico. As palavras 20 a 83 guardam dezesseis quádruplos de arquivo, com os campos ativo, slot do diretório, ID e tamanho. Não há contadores redundantes, soma de verificação nem compactação. O setor do executável é derivado da posição de sua entrada, entre os setores 20 e 35.
 
-Como a linguagem C- não possui cadeias de caracteres, nomes de diretórios e IDs de arquivos são números entre 1 e 1023. Eles pertencem a espaços de nomes separados, de modo que um diretório e um arquivo podem usar o mesmo número. IDs de arquivo são globalmente únicos. Arquivos guardam o slot interno do diretório, e não seu nome; assim, renomear um diretório não exige alterar suas entradas de arquivo. O valor zero representa o SO ou a ação de cancelar e voltar.
+A imagem inicial em \texttt{hd\_image.txt} já contém esse catálogo. O slot 0 de diretório, a raiz, está ativo com nome 0, e os demais sete estão inativos. As dez primeiras entradas de arquivo valem (1, 0, ID, tamanho), com IDs de 1 a 10. O tamanho é o número de palavras do binário sem o NOP de cabeçalho: 27, 62, 33, 40, 73, 45, 56, 37, 43 e 161, na ordem dos setores 20 a 29. As seis entradas restantes estão inativas. O kernel ainda não lê o setor 0: a função \texttt{seed\_catalog} preenche os vetores com IDs e setores fixos, e a opção 1 usa essa tabela.
+
+Como a linguagem C- não possui cadeias de caracteres, nomes de diretórios e IDs de arquivos são números. O contrato reserva a faixa de 1 a 1023 para os nomes escolhidos pelo usuário e o valor zero para o SO ou para a ação de cancelar e voltar; o nome 0 da raiz na imagem inicial coincide com esse valor reservado. Diretórios e arquivos pertencem a espaços de nomes separados, de modo que um diretório e um arquivo podem usar o mesmo número. IDs de arquivo são globalmente únicos. Arquivos guardam o slot interno do diretório, e não seu nome; assim, renomear um diretório não exige alterar suas entradas de arquivo.
 
 \begin{table}[H]
 \centering
@@ -425,35 +494,33 @@ Como a linguagem C- não possui cadeias de caracteres, nomes de diretórios e ID
 17--19 & Reservados \\
 20--35 & Até 16 programas executáveis, um por setor \\
 36--45 & Imagens de RAM dos PIDs 0 a 9 \\
-46 & Cópia-espelho transacional do catálogo \\
-47--63 & Até 17 pacotes de executáveis preparados para importação \\
+46--63 & Reservados \\
 \bottomrule
 \end{tabular}
 \legend{Fonte: Autor.}
 \end{table}
 
-No estado inicial, somente o diretório raiz está ativo. Ele ocupa o slot zero, começa com o nome 1 e contém os dez programas iniciais. A raiz pode ser renomeada, mas não excluída. Os demais sete diretórios podem ser criados, selecionados, renomeados e excluídos. O kernel mantém um diretório atual, e as operações de arquivo atuam somente sobre ele.
+No estado inicial, somente o diretório raiz está ativo. Ele ocupa o slot zero, tem o nome 0 na imagem e contém os dez programas iniciais. No desenho, a raiz pode ser renomeada, mas não excluída. Os demais sete diretórios poderão ser criados, selecionados, renomeados e excluídos. O kernel manterá um diretório atual, e as operações de arquivo atuarão somente sobre ele. Nenhuma dessas operações está ligada ao menu: a opção 3 apenas mostra a tela ARQUIVOS.
 
-As operações de diretório são listar, criar, selecionar, renomear e excluir. Excluir um diretório exige confirmação explícita e desativa logicamente todos os arquivos nele contidos; os setores deixam de estar referenciados e podem ser reutilizados. As operações de arquivo já definidas são:
+As operações de diretório previstas são listar, criar, selecionar, renomear e excluir. Excluir um diretório exige confirmação explícita e desativa logicamente todos os arquivos nele contidos; os setores deixam de estar referenciados e podem ser reutilizados. As operações de arquivo definidas são:
 
 \begin{itemize}
     \item \textbf{listar}: percorrer as entradas ativas do diretório atual;
     \item \textbf{carregar}: localizar o programa no diretório atual e transferir seu código para a IMEM;
-    \item \textbf{importar}: validar um pacote preparado, copiá-lo para o setor de um slot livre e ativar sua entrada no catálogo;
     \item \textbf{renomear}: substituir seu ID por outro ID globalmente livre;
     \item \textbf{mover}: alterar somente o slot de diretório armazenado na entrada;
     \item \textbf{remover}: desativar a entrada, sem compactar o catálogo.
 \end{itemize}
 
-O conteúdo de um executável não é editado depois que ele entra no sistema de arquivos. A importação utiliza os pacotes posicionados pelo empacotador nos setores 47 a 63. O usuário seleciona o número do pacote, o diretório de destino e um ID globalmente livre. O kernel carrega o setor escolhido no buffer, valida o tamanho registrado no NOP inicial e a presença do \texttt{HLT} final e calcula uma soma de verificação das 256 palavras. Em seguida, escolhe a primeira entrada de arquivo livre, grava o setor completo no setor 20 mais o índice dessa entrada, relê o destino e compara sua soma com a origem. Somente depois prepara uma nova geração do catálogo que torna o arquivo visível. Pacotes vazios, inválidos ou maiores que 256 palavras são rejeitados sem alterar o catálogo.
+O conteúdo de um executável não é editado depois que ele entra no sistema de arquivos. A forma de adicionar um executável pronto ao catálogo ainda está indefinida; a entrada manual de código binário pela placa foi descartada. O \texttt{so.cms} contém versões preliminares de \texttt{find\_program}, \texttt{list\_programs}, \texttt{rename\_program} e \texttt{delete\_program} sobre os vetores fixos; somente \texttt{find\_program} é usada, pela opção 1, e \texttt{delete\_program} ainda compacta a tabela, ao contrário do contrato.
 
-No contrato do catálogo, ainda não executado, o kernel carregaria os setores zero e 46, validaria assinatura, versão, capacidades e soma de verificação e escolheria a cópia válida de maior geração. Se apenas o espelho for válido ou estiver mais atualizado, ele é copiado de volta ao setor zero antes da abertura do menu. Em cada alteração, o kernel monta a versão candidata no buffer sem modificar os vetores ativos, incrementa sua geração, calcula a soma de verificação e grava primeiro o setor 46. A releitura e validação do espelho constituem o ponto de \emph{commit}: a partir dele, a mudança é publicada nos vetores. O kernel tenta então sincronizar e verificar o setor zero. Se essa segunda escrita falhar, a operação permanece confirmada pelo espelho, o usuário recebe um aviso de recuperação pendente e uma nova alteração de catálogo é recusada até que a sincronização seja concluída. Um cancelamento anterior ao \emph{commit} descarta o candidato; depois dele, não desfaz a mudança. Se houver perda de energia entre as duas cópias, a inicialização recupera a geração válida mais recente.
+No contrato do catálogo, ainda não executado, o kernel carregará o setor 0 no \emph{buffer} 1280--1535 durante a inicialização e validará assinatura, versão e capacidades. Após cada criação, renomeação, movimentação ou exclusão aceita, montará a versão candidata nesse \emph{buffer} sem alterar os vetores ativos e concluirá uma transferência RAM$\rightarrow$HD do setor 0. Essa escrita única é o ponto de \emph{commit}: somente depois dela a mudança é publicada nos vetores e o sucesso é confirmado ao usuário. Não há cópia-espelho. Um cancelamento anterior ao \emph{commit} descarta o candidato; durante o \emph{commit}, a transferência do setor é concluída antes de o cancelamento ser tratado.
 
 Cada processo usa o setor de dados correspondente ao PID, por isso duas instâncias do mesmo executável preservam dados e contexto independentes. Alterações cujo \emph{commit} terminou persistem durante cancelamentos controlados; uma nova energização ou reconfiguração da FPGA restaura a imagem inicial.
 
 \section{Gerenciamento de Entrada e Saída}
 
-O kernel organiza logicamente a entrada e saída em serviços e controladores dentro do arquivo único. O menu utiliza entrada numérica confirmada por botão, saída numérica e LCD; o disco utiliza registradores próprios mapeados em memória.
+O kernel organiza logicamente a entrada e saída em serviços e controladores dentro do arquivo único. O menu utiliza somente o LCD e os botões \texttt{KEY[3]}, que avança, \texttt{KEY[2]}, que recua, e \texttt{KEY[1]}, que confirma. Os \emph{switches} e os sete segmentos atendem às instruções \texttt{IN} e \texttt{OUT} dos programas. O disco utiliza registradores próprios mapeados em memória.
 
 O disco e os controles do sistema usam E/S mapeada em memória. Os endereços reservados e suas funções são apresentados na \autoref{tab:mmio}.
 
@@ -468,7 +535,7 @@ O disco e os controles do sistema usam E/S mapeada em memória. Os endereços re
 \midrule
 4088 & \texttt{pc\_load} & Escrita com destino em 3072--3839 e HD descongelado grava PC+1 em \texttt{kret} e na RAM 1042 e desvia. Fora da folha a escrita é ignorada. A leitura devolve \texttt{epc}. \\
 4089 & \texttt{cause} & O \texttt{HLT} armado grava 2 e desarma. Timer, \texttt{IN}, \texttt{OUT} e cancelar continuam especificados e ainda não são produzidos. \\
-4090 & \texttt{ctrl} & Especificado para modo, temporizador e \texttt{DISPATCH}. No hardware integrado a escrita não tem efeito. \\
+4090 & \texttt{ctrl} & Especificado para modo, temporizador e \texttt{DISPATCH}. No \emph{hardware} integrado o endereço não é decodificado: a escrita é ignorada e a leitura devolve zero. \\
 4091 & \texttt{display\_ctx} & Modo, identificador e PID na escrita. A leitura acrescenta o índice da opção e o bit 27 de confirmação. O catálogo está na \autoref{tab:lcd}. \\
 4092 & \texttt{hd\_cmd} & 0: nenhuma operação; 1: HD$\rightarrow$RAM; 2: HD$\rightarrow$IMEM; 3: RAM$\rightarrow$HD. Não há comando de IMEM para o HD. \\
 4093 & \texttt{hd\_sector} & Seleciona o setor lógico. \\
@@ -479,7 +546,7 @@ O disco e os controles do sistema usam E/S mapeada em memória. Os endereços re
 \legend{Fonte: Autor.}
 \end{table}
 
-Para iniciar uma transferência, o kernel escreve o setor em 4093, o endereço-base em 4094 e o comando em 4092. O controlador captura esses três parâmetros uma única vez em registradores internos, ignora novas escritas de início enquanto ocupado, congela PC e sinais comuns de escrita e transfere uma palavra por ciclo. Após aposentar a 256ª palavra, encerra o comando, sinaliza conclusão, libera a CPU e permite que o PC avance exatamente uma vez. O intrínseco, já com o PC liberado, lê \texttt{hd\_status} e devolve 0 quando o estado é concluído e 1 quando é erro.
+Para iniciar uma transferência, o kernel escreve o setor em 4093, o endereço-base em 4094 e o comando em 4092. O controlador captura esses três parâmetros uma única vez em registradores internos, ignora novas escritas de início enquanto ocupado, congela PC e sinais comuns de escrita e transfere uma palavra por ciclo. Após aposentar a 256ª palavra, encerra o comando, sinaliza conclusão, libera a CPU e permite que o PC avance exatamente uma vez. O intrínseco, já com o PC liberado, lê \texttt{hd\_status} e devolve 0 quando o estado é concluído e 1 quando é erro ou ocioso; só repete a leitura enquanto o estado é ocupado.
 
 Na leitura de \texttt{ctrl}, o contrato reserva os bits 0 a 4 para modo privilegiado, temporizador habilitado, \emph{trap} pendente, HD ocupado e cancelamento pendente. Em uma escrita privilegiada, os bits 8, 9, 10 e 11 seriam pulsos de comando para habilitar o temporizador, desabilitá-lo, executar \texttt{DISPATCH} e reconhecer a causa tratada. Esse mapa ainda não atua: o endereço 4090 não altera o processador.
 
@@ -495,16 +562,16 @@ O bloqueio global durante \texttt{IN} e \texttt{OUT}, com o supervisor retirando
 
 A imagem de \emph{reset} já usada pelo Quartus é \texttt{processador/so.txt}, lida com \texttt{hd\_image.txt} pelo \texttt{MISC\_FILE} do \texttt{.qsf}. \texttt{so.txt} tem 4096 palavras: o kernel nas palavras 0 a 1334, NOP de 1335 a 3070, \texttt{J 3071} na palavra 3071 e zero de 3072 a 4095. O supervisor não está nessa imagem. Os padrões de síntese são \texttt{CPU\_DIV} 5000, \texttt{BTN\_STABLE} 1000000 e os tempos reais do LCD. O \texttt{tb\_menu} encurta esses parâmetros só na simulação. Os dez programas canônicos ocupam os setores 20 a 29 de \texttt{hd\_image.txt}. \texttt{compilador/exemplos/} não é essa imagem: \texttt{reset\_tests.sh} sem flag regenera a ROM solta e, com \texttt{--target=os-user}, grava só os setores 20 a 29.
 
-Um empacotador determinístico ainda deverá fechar a imagem final, inclusive o supervisor em 3840--4095, que não será compilado pelo alvo C-. O salto de guarda já ocupado é o endereço 3071, com \texttt{J 3071}. Os setores 46 a 63 e a leitura do setor 0 continuam fora da opção 1.
+Um empacotador determinístico ainda deverá fechar a imagem final, inclusive o supervisor em 3840--4095, que não será compilado pelo alvo C-. O salto de guarda já ocupado é o endereço 3071, com \texttt{J 3071}. O setor 0 de \texttt{hd\_image.txt} já traz o catálogo inicial descrito no sistema de arquivos, mas sua leitura continua fora da opção 1. Os setores 46 a 63 são reservados.
 
 \section{Inicialização e Fluxo de Execução}
 
-O fluxo previsto de inicialização é o seguinte. Só o primeiro e o quarto itens ocorrem hoje. Os itens do catálogo continuam por fazer, porque o setor 0 não é lido:
+O fluxo previsto de inicialização é o seguinte. O primeiro, o terceiro e o quarto itens ocorrem hoje. O segundo continua por fazer, porque o setor 0 não é lido; em seu lugar, \texttt{main} chama \texttt{seed\_catalog}, que preenche os vetores com IDs e setores fixos:
 
 \begin{enumerate}
     \item ao ligar a placa, \texttt{so.txt} coloca o kernel no endereço zero; o supervisor previsto permanece ausente;
-    \item os setores zero e 46 seriam validados e a geração mais recente do catálogo seria recuperada nos vetores;
-    \item a tabela de processos seria inicializada;
+    \item o setor 0 seria carregado no \emph{buffer}, validado e copiado para os vetores do catálogo;
+    \item a tabela de processos é inicializada por \texttt{init\_procs}, ainda com as quatro posições preliminares;
     \item o menu é apresentado e aguarda uma opção do usuário.
 \end{enumerate}
 
@@ -528,10 +595,10 @@ A \autoref{tab:decisoes} resume as principais decisões do sistema.
 \textbf{Área} & \textbf{Método} & \textbf{Implementação} \\
 \midrule
 Kernel & Monolítico; supervisor ainda ausente & Kernel em um arquivo C-. O Assembly de 3840--4095 não está na imagem. \\
-Processos & \emph{Round-robin} previsto & A opção 1 não cria processo nem preempta. Timer e busca circular continuam pendentes. \\
+Processos & \emph{Round-robin} previsto & A opção 1 não cria processo nem preempta. O timer está pendente; \texttt{next\_process} já faz a busca circular sobre quatro PCBs, mas o menu não a chama. \\
 Contexto & ABI de 18 palavras prevista & A opção 1 grava 15 registradores em 1043--1057, sem \texttt{\$hi} e \texttt{\$lo}. \\
 Memória & Folha e janela substituíveis & O kernel fica em 0--3071. A opção 1 troca a folha 3072--3839 e carrega o setor 36 em 1536. \\
-Arquivos & Oito diretórios planos e setores fixos & Dezesseis executáveis previstos; o catálogo fixo da opção 1 não lê o setor 0. \\
+Arquivos & Oito diretórios planos e setores fixos & Dezesseis executáveis previstos. O setor 0 da imagem já tem o catálogo de 84 palavras, mas a opção 1 usa a tabela fixa de \texttt{seed\_catalog}. \\
 Disco & MMIO e transferência bloqueante & Comandos 1, 2 e 3 em 4092--4095; 256 palavras por setor; retorno 0 ou 1. \\
 E/S & \texttt{IN}/\texttt{OUT} diretos nesta etapa & Esperam \texttt{KEY[1]} no programa. A \emph{trap} que traria o kernel continua pendente. \\
 Inicialização & Kernel presente no \emph{reset} & \texttt{so.txt} já contém o kernel. A volta da opção 1 é o \texttt{HLT} armado, não o supervisor. \\
@@ -546,9 +613,9 @@ O estudo relaciona as funções de gerenciamento de processos, memória, arquivo
 
 O desenho ainda prevê \emph{round-robin}, o contexto de 18 palavras com \texttt{\$hi} e \texttt{\$lo}, e a gravação da janela de dados. A opção 1 já executa um programa sem esses mecanismos. IMEM e RAM têm 4096 palavras. O disco tem 64 setores de 256 palavras. Os dez executáveis canônicos estão nos setores 20 a 29. Os setores 1 a 12 do HD seguem em NOP. O setor 0 ainda não é lido.
 
-O sistema de arquivos foi definido com oito diretórios planos e operações para listar, importar, carregar, renomear, mover e excluir programas. Essas operações não estão ligadas ao menu. A E/S dos programas por \emph{trap} permanece especificada. No hardware atual, \texttt{IN} e \texttt{OUT} acessam o periférico direto.
+O sistema de arquivos foi definido com oito diretórios planos e operações para listar, carregar, renomear, mover e excluir programas; a forma de adicionar executáveis continua indefinida. O catálogo de 84 palavras já está no setor 0 da imagem do HD, mas essas operações não estão ligadas ao menu. A E/S dos programas por \emph{trap} permanece especificada. No hardware atual, \texttt{IN} e \texttt{OUT} acessam o periférico direto.
 
-O menu do LCD é percorrido em simulação, e a opção 1 carrega o programa. O \texttt{tb\_menu} executa a área, com dois \texttt{IN} e o \texttt{OUT} de base$\times$altura/2, volta ao menu com \texttt{\$gp} 0, carrega um segundo setor na folha e confere que o \texttt{KEY[1]} de um \texttt{IN} não confirma o menu. \texttt{loadHD}, \texttt{storeHD} e \texttt{loadROM} já usam 4092 a 4095. Continuam pendentes o temporizador, o modo privilegiado, o supervisor, a troca de 18 palavras, o \emph{round-robin}, o CRUD, a leitura do setor 0 e \texttt{IN}/\texttt{OUT} como \emph{trap}.
+O menu do LCD é percorrido em simulação, e a opção 1 carrega o programa. O \texttt{tb\_menu} executa a área, com dois \texttt{IN} e o \texttt{OUT} de base$\times$altura/2, volta ao menu com \texttt{\$gp} 0, carrega um segundo setor na folha e confere que o \texttt{KEY[1]} de um \texttt{IN} não confirma o menu. Os testes do processador \texttt{tb\_lcd}, \texttt{tb\_hd\_map}, \texttt{tb\_hd\_stall}, \texttt{tb\_menu} e \texttt{tb\_retorno} passam no Icarus Verilog; o último confere a causa 2, o \texttt{epc} na folha e o desarme do retorno. Essa execução individual foi validada em simulação, ainda não na placa, pois a síntese do mapa de 4096 palavras está pendente. \texttt{loadHD}, \texttt{storeHD} e \texttt{loadROM} já usam 4092 a 4095. Continuam pendentes o temporizador, o modo privilegiado, o supervisor, a troca de 18 palavras, o \emph{round-robin}, o CRUD, a leitura do setor 0 e \texttt{IN}/\texttt{OUT} como \emph{trap}.
 
 As principais dificuldades previstas são respeitar os limites de código e pilha do C-, manter a ABI sincronizada com o contexto salvo, garantir que cada transferência bloqueante avance o PC uma única vez e diagnosticar falhas que atravessam compilador, software e Verilog. O custo do \emph{swapping} e o bloqueio global durante \texttt{IN}/\texttt{OUT} também limitam o desempenho, embora simplifiquem a primeira implementação. Essas limitações deverão ser medidas nos testes e poderão orientar versões posteriores com processos bloqueados, E/S concorrente e proteção de memória.
 
