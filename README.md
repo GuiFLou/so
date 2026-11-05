@@ -44,9 +44,10 @@ mudança em `so.cms`.
 O hardware permanece no repositório [`../processador`](../processador). O
 compilador e as fontes ficam em [`../compilador`](../compilador).
 `compilador/exemplos/` é a ROM solta: `reset_tests.sh` sem flag a regenera.
-Os binários que o SO executa estão no processador, nos setores 20–29 de
-`hd_image.txt`. Com `--target=os-user` o script grava só esses setores e não
-mexe em `exemplos/`. O repositório do SO contém o kernel e a documentação.
+Os binários que o SO executa estão no processador, em trios de setores a
+partir de `1 + 3×posição` em `hd_image.txt`. Com `--target=os-user` o script
+grava esses trios, zera as janelas `31 + 3×PID` e não mexe em `exemplos/`.
+O repositório do SO contém o kernel e a documentação.
 
 ## Fases do projeto
 
@@ -58,37 +59,57 @@ A gestão de processos pesa mais na nota, então a execução e o escalonamento 
 - [x] HD simulado em Verilog (`hd_sim.v`), integrado no top-level
 - [x] Memória de instrução gravável (`inst_mem_rw.v`), integrada no top-level
 - [x] LCD com mensagens fixas (`display_ctx` no endereço 4091)
-- [x] Sem BIOS: o reset busca `so.txt` na IMEM (kernel nas palavras 0–1334, NOP em 1335–3070 e `J 3071` na palavra 3071; 3072–4095 em zero)
-- [x] Remontar `hd_image.txt` (catálogo no setor 0, kernel em NOP nos setores 1–12, programas nos setores 20–29, janelas dos PIDs zeradas)
+- [x] Sem BIOS: o reset busca `so.txt` na IMEM (kernel nas palavras 0–902, NOP em 903–3070 e `J 3071` na palavra 3071; 3072–4095 em zero)
+- [x] Remontar `hd_image.txt` (catálogo no setor 0, executáveis em trios a partir de `1 + 3×posição`, janelas a partir de `31 + 3×PID`)
+
+### Ajustes ainda da fase 1
+- [x] Gravar e restaurar `$hi` e `$lo` na volta da opção 1
+- [x] Realocar os dez executáveis no HD, 3 setores cada, a partir de `1 + 3×posição`
+- [x] Realocar as dez janelas no HD, 3 setores cada, a partir de `31 + 3×PID`
+- [x] Crescer a janela de dados do programa para 1536–2303
+- [x] Subir o limite do alvo `os-user` para 768 palavras
+- [x] Ler o diretório do setor 0 no arranque
+- [x] Atualizar testes e imagem para o mapa novo
+- [x] Alinhar a documentação com a imagem nova
 
 ### Fase 1 — Execução individual
 O usuário seleciona um programa pelo LCD, executa só esse programa e, ao terminar, volta ao menu para escolher outro. Os IDs são os já gravados na imagem.
 
-- [x] Menu no LCD: boas-vindas, três opções, lista dos dez programas, quantidade e a tela de arquivos. A opção 1 carrega o setor escolhido e mostra RUN
+- [x] Menu no LCD: boas-vindas, três opções, lista dos dez programas, quantidade e a tela de arquivos. A opção 1 carrega a janela e o trio do programa e mostra RUN
 - [x] Carregar o programa escolhido do HD para a folha da vez e desviar o PC
 - [x] Executar 1 programa (sem preempção) e voltar ao menu após o término (validado em simulação pelo `tb_menu`)
-- [ ] Sintetizar o mapa de 4096 no Quartus e executar os dez programas na placa. A IMEM e a RAM leem de forma assíncrona e podem não caber na FPGA; ver `docs/CONTEXT.md`, estado do processador
+- [ ] Sintetizar o mapa de 4096 no Quartus e executar os dez programas na placa
 
 ### Fase 2 — Multitarefa com preempção
 O usuário escolhe N programas e o SO os executa com interrupção por quantum.
 
-- [ ] Pré-requisito: o compilador salvar os `$t` vivos em volta de `jal` e o `os-user` reservar pilha
-- [ ] Timer de quantum em Verilog (`interrupt_timer.v`, ainda não existe)
-- [ ] Flag de modo kernel (não interromper o SO)
-- [ ] Tabela de processos (PCB em arrays paralelos). Hoje há 4 posições com campos do mapa antigo; devem ser 10, com estado, ID, setor e 18 palavras de contexto
-- [ ] Salvar/restaurar contexto (registradores + PC). O `runat` e o hardware já salvam 15 registradores e o PC em 1042–1057; faltam `$hi`, `$lo` e o supervisor
-- [ ] Escalonador round-robin. `next_process` já faz a busca circular, mas não está ligado ao menu
-- [ ] Executar N programas concorrentemente
+- [ ] Salvar `$t` vivos em volta de `jal` e reservar pilha no `os-user`
+- [ ] Timer de quantum
+- [ ] Desligar o timer quando só há um processo executável
+- [ ] Modo privilegiado
+- [ ] Causas simultâneas na ordem KEY[0], HLT, IN/OUT e timer; ctrl em 4090 recebe modo, timer e DISPATCH
+- [ ] Tabela de 10 processos com contexto de 18 palavras
+- [ ] Copiar o contexto do mailbox para o PCB antes de reutilizar o mailbox
+- [ ] Supervisor salva e restaura o contexto
+- [ ] Round-robin ligado ao menu
+- [ ] HLT libera o PID e despacha o próximo; a volta em 4088 fica na opção 1 ou na fila vazia; quem terminou não volta a pronto
+- [ ] Executar N programas com preempção
+- [ ] Cada PID grava e recarrega só a própria janela
+- [ ] Gravar a janela no setor de quem sai antes de o mailbox apontar o setor de quem entra
+- [ ] A troca inteira, janela, folha e janela seguinte, é uma operação só: timer e KEY[0] só no fim
+- [ ] Cada PID restaura só o próprio contexto
+- [ ] Modo usuário não escreve o MMIO
+- [ ] `IN` e `OUT` de usuário entregam o valor no contexto daquele PID
+- [ ] Duas instâncias do mesmo executável preservam dados e registradores distintos
 
 ### Fase 3 — CRUD de arquivos
-- [ ] Ler o catálogo do setor 0 no arranque (hoje `seed_catalog` é fixo; o setor 0 já está gravado na imagem)
-- [ ] Criar, listar, renomear e deletar programas no catálogo do HD
+- [ ] Criar, renomear, mover e excluir programas no catálogo do HD
 
 ## Como compilar
 
 `processador/so.txt` é a imagem de reset, com 4096 palavras. O Quartus a lê,
 junto com `hd_image.txt`, do diretório do processador (`MISC_FILE` no
-`.qsf`). O kernel compilado ocupa as palavras 0–1334. As palavras 1335–3070
+`.qsf`). O kernel compilado ocupa as palavras 0–902. As palavras 903–3070
 são NOP, a palavra 3071 é `J 3071` e 3072–4095 continuam zero. O supervisor
 ainda não existe. Os padrões de síntese são `CPU_DIV` 5000, `BTN_STABLE`
 1000000 e os tempos reais do LCD. O `tb_menu` encurta isso só na simulação.
@@ -97,8 +118,7 @@ O alvo `os-kernel` ainda não existe na linha de comando. O kernel de
 `so.txt` saiu do alvo padrão, com o NOP de tamanho e o `HLT` que o encoder
 põe em todo binário. Nenhum script monta `processador/so.txt`; a receita
 que gera o arquivo atual está em `docs/CONTEXT.md`, na construção das
-imagens iniciais. Os setores 1–12 de `hd_image.txt` seguem em NOP; os
-programas canônicos estão nos setores 20–29.
+imagens iniciais. Os programas canônicos ocupam trios a partir do LBA `1 + 3×posição`. As janelas dos PIDs 0–9 começam em `31 + 3×PID` e estão zeradas.
 
 ## Dependências
 
@@ -126,13 +146,13 @@ KEY[3] avança e KEY[2] recua, com volta, só quando a tela tem mais de um item 
 | 7 | 10 | `QUANTOS` | `>01` a `>10`, iguais ao índice mais um |
 | 8 | 1 | `ARQUIVOS` | `FASE 3` |
 
-Os nomes, na ordem do índice, são AREA, BUSCA, FAT, FIB, GCD, MEDIA, PRIMO, POT, DIG e SORT. Os dígitos vêm do identificador escrito pelo kernel: 1 a 10, setores 20 a 29, na mesma ordem.
+Os nomes, na ordem do índice, são AREA, BUSCA, FAT, FIB, GCD, MEDIA, PRIMO, POT, DIG e SORT. Os dígitos vêm do identificador lido no setor 0: 1 a 10, primeiro LBA `1 + 3×posição`, na mesma ordem.
 
-No `so.cms`, o arranque mostra boas-vindas e espera KEY[1]. A primeira opção lista um programa e, no Enter, chama `find_program`. Se a busca falha, ou se `loadHD(36, 1536)` ou `loadROM(cat_sector[idx], 3072)` não devolvem 0, a tela é ERR. No sucesso, mostra RUN com o identificador e PID 0 e chama `runat(3072)`. Não há espera de KEY[1] antes do programa. O `HLT` armado devolve o menu. A segunda pergunta quantos programas e, depois de escolhê-los, mostra ERR, porque a preempção ainda não existe. A terceira avisa que arquivos ficam para a fase 3. O menu não chama `input()` nem `output()`: as duas instruções também esperam KEY[1], e o aperto que solta um `IN` não confirma o menu.
+No `so.cms`, o arranque lê o setor 0 para o buffer 1280 e publica a lista. A primeira opção lista um programa e, no Enter, chama `find_program`. Se a busca falha, ou se a janela do PID 0 ou o trio do programa não devolvem 0, a tela é ERR. No sucesso, mostra RUN com o identificador e PID 0 e chama `runat(3072)`. Não há espera de KEY[1] antes do programa. O `HLT` armado devolve o menu. A segunda pergunta quantos programas e, depois de escolhê-los, mostra ERR, porque a preempção ainda não existe. A terceira avisa que arquivos ficam para a fase 3. O menu não chama `input()` nem `output()`: as duas instruções também esperam KEY[1], e o aperto que solta um `IN` não confirma o menu.
 
 O sete segmentos continua sendo a saída de `OUT`. O `tb_menu` executa a área, com dois `IN` e o `OUT` de base×altura/2, volta ao menu com `$gp` 0 e carrega um segundo setor na folha. Os códigos 10, 11, 41, 42, 51, 111, 800 e 900 eram o menu antigo, feito com switches. O menu do LCD não os mostra.
 
-O compilador expõe `lcdshow(modo, id, pid)`, `lcdack()` e `lcdsel()`. `loadHD`, `storeHD` e `loadROM` usam 4092 a 4095 e devolvem 0 quando `hd_status` é done e 1 quando é erro ou idle. 1020 a 1023 não é o disco. `void runat(int)` não é `jal`: grava `$v0`, `$t0`–`$t9`, `$gp`, `$sp`, `$fp` e `$ra` em 1043–1057, escreve o endereço em 4088 e restaura esses registradores a partir de `lw $v0,1043`. `$hi` e `$lo` ficam de fora. O alvo `os-user` recusa HD, LCD e `runat`. A troca de contexto de 18 palavras, o supervisor, o timer, o round-robin, o CRUD, a leitura do setor 0 e `IN`/`OUT` como trap continuam pendentes.
+O compilador expõe `lcdshow(modo, id, pid)`, `lcdack()` e `lcdsel()`. `loadHD`, `storeHD` e `loadROM` usam 4092 a 4095 e devolvem 0 quando `hd_status` é done e 1 quando é erro ou idle. 1020 a 1023 não é o disco. `mem_read(addr)` lê uma palavra com o endereço no registrador. `void runat(int)` não é `jal`: grava `$v0`, `$t0`–`$t9`, `$gp`, `$sp`, `$fp`, `$ra`, `$hi` e `$lo` em 1043–1059, escreve o endereço em 4088 e restaura esses registradores a partir de `lw $v0,1043`. O alvo `os-user` recusa HD, LCD, `runat` e `mem_read`. A troca de contexto pelo supervisor, o timer, o round-robin, o CRUD e `IN`/`OUT` como trap continuam pendentes.
 
 ## FAQ para apresentação
 
@@ -171,20 +191,18 @@ faz o processador voltar à instrução seguinte do kernel. Esse caminho está e
 
 #### 2. O projeto possui BIOS? Como ocorre o boot? — IMPLEMENTADO, sem BIOS
 
-Não há BIOS na arquitetura atual. Embora `docs/notes.md` e funções antigas
-como `bios_selftest` ainda mencionem uma BIOS, essa ideia foi descartada por
-priorização. A configuração da FPGA já inicializa a IMEM com
-`processador/so.txt`; o PC volta a zero no reset e começa diretamente no
-prólogo do kernel.
+Não há BIOS na arquitetura atual. `docs/notes.md` ainda menciona uma BIOS;
+essa ideia foi descartada por priorização. A configuração da FPGA já
+inicializa a IMEM com `processador/so.txt`; o PC volta a zero no reset e
+começa diretamente no prólogo do kernel.
 
 ```text
-reset -> PC = 0 -> kernel residente -> main -> seed_catalog
-      -> init_procs -> menu
+reset -> PC = 0 -> kernel residente -> main -> load_catalog -> menu
 ```
 
 KEY[0] reinicia PC, registradores e CSRs, mas não recarrega IMEM, RAM ou HD.
 Portanto, o termo correto na banca é **imagem de reset com o SO residente**, e
-não BIOS. As funções `bios_*` de `so.cms` são código legado e inalcançável.
+não BIOS. O `so.cms` não contém funções de BIOS.
 
 #### 3. Por que a arquitetura de memória é Harvard e como o SO divide a memória? — IMPLEMENTADO
 
@@ -200,29 +218,12 @@ IMEM 3840–4095    supervisor futuro
 RAM  0–1023       dados e pilha do kernel
 RAM  1024–1279    mailbox/contextos
 RAM  1280–1535    buffer de um setor
-RAM  1536–1791    dados e pilha do programa atual
+RAM  1536–2303    dados e pilha do programa atual
 RAM  4088–4095    MMIO
 ```
 
 Kernel e programa coexistem: uma troca de programa substitui somente a folha
 e a janela de dados. Isso evita recarregar o SO a cada troca de contexto.
-
-#### 3.1. Quais diferenças impedem tratar o MIPS-Lite como um MIPS convencional? — IMPLEMENTADO
-
-Este processador usa instruções próprias de 32 bits, mas não implementa a ABI
-nem a codificação do MIPS comercial. As diferenças que mais afetam o projeto
-são:
-
-- banco de 64 registradores, identificados por 6 bits;
-- imediato F2 de 14 bits;
-- PC e memórias endereçados por palavra, com `PC + 1`;
-- formatos próprios F1, F2, F3 e FI;
-- opcodes próprios para `HLT`, `IN` e `OUT`;
-- `$hi` e `$lo` nos índices 62 e 61, com bypass no datapath.
-
-Por isso, um binário produzido por um compilador MIPS comum não executaria
-neste núcleo. Compilador, encoder e processador precisam concordar
-exatamente sobre formatos, números de registrador e semântica de cada opcode.
 
 ### Mudanças no compilador
 
@@ -240,10 +241,10 @@ if (targetOsUser) {
 }
 ```
 
-O alvo também limita o binário a 256 palavras, pois cada executável ocupa um
-setor do HD. Em `analyze.c`, chamadas a HD, LCD e `runat` são recusadas para
-`os-user`. O alvo padrão continua sendo usado para o kernel e para execução
-isolada durante o desenvolvimento.
+O alvo também limita o binário a 768 palavras, pois cada executável ocupa
+três setores do HD. Em `analyze.c`, chamadas a HD, LCD, `runat` e `mem_read`
+são recusadas para `os-user`. O alvo padrão continua sendo usado para o
+kernel e para execução isolada durante o desenvolvimento.
 
 #### 5. Por que `J` e `JAL` recebem 3072, mas `BEQ` e `BNE` não? — IMPLEMENTADO
 
@@ -312,8 +313,8 @@ O compilador usa `$gp` para globais, `$sp` para a pilha, `$fp` para o frame,
 
 Logo, salvar apenas o PC não basta: o processo voltaria à instrução correta
 com variáveis e retornos corrompidos. A Fase 2 prevê preservar PC mais 17
-registradores. O `runat` atual salva 15 registradores; ainda faltam
-`$hi/$lo` e o mecanismo completo de supervisor.
+registradores. O `runat` da opção 1 já grava e restaura esses 17, inclusive
+`$hi` e `$lo`. O mecanismo completo de supervisor continua pendente.
 
 #### 9. Que limitações atuais do compilador bloqueiam ou arriscam a Fase 2? — PARCIAL
 
@@ -321,8 +322,8 @@ Há duas limitações principais:
 
 1. temporários `tN` são mapeados circularmente em `$t0`–`$t9` e não são
    salvos em torno de `jal`; uma chamada pode sobrescrever um temporário vivo;
-2. globais e pilha dividem as 256 palavras da janela de usuário, mas a
-   verificação `dataUsed > 256` não inclui a profundidade da pilha.
+2. globais e pilha dividem as 768 palavras da janela de usuário, mas a
+   verificação `dataUsed > 768` não inclui a profundidade da pilha.
 
 Exemplo problemático:
 
@@ -429,36 +430,20 @@ Esses casos de corrida são verificados em `tb_lcd` e `tb_menu`.
 
 #### 15. O que o gerenciador de processos faz atualmente? — PARCIAL
 
-`so.cms` possui arrays paralelos para estado, PC, SP e bases, além de busca de
-slot, criação, destruição e uma busca circular preliminar. Arrays paralelos
-substituem `struct`, que não existe em C-.
-
-```c
-int proc_state[4];
-int proc_pc[4];
-int proc_sp[4];
-...
-```
-
-Entretanto, esse trecho ainda usa quatro PCBs e endereços do mapa antigo.
-Além disso, `create_process`, `context_switch` e `run_multitask` não são
-alcançados pelo menu funcional. O que existe hoje em execução é um PID 0
-implícito para a opção individual, não um gerenciador multitarefa completo.
-
-Há outros motivos para não reutilizar esse esqueleto sem revisão:
-`save_context` e `restore_context` estão vazias; `create_process` calcula
-bases antigas (`512 + pid*256` e `128 + pid*512`); e `context_switch` sempre
-recoloca o processo atual em pronto, mesmo se ele já tiver terminado.
+O que executa hoje é um PID 0 implícito na opção 1: a janela carregada é
+sempre a do PID 0 e o `runat(3072)` não consulta uma tabela de processos.
+`so.cms` não guarda PCB, contexto nem busca circular. Arrays paralelos
+continuam sendo a forma prevista para a fase 2, porque C- não tem `struct`.
 
 #### 16. Como será o escalonamento round-robin? — FASE 2
 
 Round-robin dá a cada processo pronto um quantum fixo e percorre os PIDs
-circularmente. A política já aparece em `next_process`, mas precisa ser
-adaptada de 4 para 10 entradas e ligada às interrupções.
+circularmente. O kernel ainda não tem essa busca. A fase 2 percorre dez
+entradas e liga a escolha às interrupções.
 
 ```c
-/* ideia já presente, ainda não integrada */
-candidate = modulo(current_pid + i, quantidade_de_pcbs);
+/* desenho da fase 2, ainda sem código no kernel */
+candidate = (current_pid + i) módulo quantidade_de_pcbs;
 if (proc_state[candidate] == PRONTO) return candidate;
 ```
 
@@ -514,14 +499,14 @@ Ainda não há paginação, MMU ou segmentação dinâmica. A solução é
 **particionamento fixo com swapping explícito**:
 
 - uma folha fixa de código em 3072–3839;
-- uma janela fixa de dados em 1536–1791;
-- um setor de dados no HD para cada PID;
+- uma janela fixa de dados em 1536–2303;
+- três setores de dados no HD para cada PID, a partir de `31 + 3×PID`;
 - kernel e mailbox em regiões residentes.
 
-Na troca futura, os 256 dados do PID atual serão gravados no setor
-`36 + PID`, e os dados do próximo serão carregados na mesma janela. É uma
-forma simples de virtualização por sobreposição: todos os programas enxergam
-os mesmos endereços, mas recebem conteúdos diferentes.
+Na troca futura, as 768 palavras do PID atual serão gravadas nesse trio, e
+as do próximo serão carregadas na mesma janela. É uma forma simples de
+virtualização por sobreposição: todos os programas enxergam os mesmos
+endereços, mas recebem conteúdos diferentes.
 
 #### 21. Como duas instâncias do mesmo programa poderão ter dados independentes? — FASE 2
 
@@ -530,12 +515,12 @@ leitura, mas cada instância recebe PID, contexto e setor de dados próprios.
 Por exemplo:
 
 ```text
-PID 2: código setor 22, dados setor 38
-PID 7: código setor 22, dados setor 43
+PID 2: código a partir do LBA 7, dados a partir do LBA 37
+PID 7: código a partir do LBA 7, dados a partir do LBA 52
 ```
 
 Ambas executam o fatorial carregado em 3072, porém a troca carrega em
-1536–1791 a janela correspondente ao PID. Assim, pilha, globais e
+1536–2303 a janela correspondente ao PID. Assim, pilha, globais e
 registradores não se misturam.
 
 #### 22. Quais são as limitações de proteção de memória atuais? — PARCIAL
@@ -600,13 +585,15 @@ palavras 20–83  16 arquivos, 4 palavras cada
 ```
 
 Cada arquivo guarda ativo, diretório, ID e tamanho. Sua posição determina o
-setor do executável: `20 + posição`. Não há subdiretórios nem conteúdo de
-arquivo com tamanho variável; cada executável ocupa um setor.
+primeiro setor do executável: `1 + 3×posição`. Não há subdiretórios. Cada
+executável ocupa três setores, no máximo 768 palavras. O kernel só publica
+as posições 0–9; uma entrada ativa em 10–15 faz o arranque recusar o
+diretório, porque esse trio colidiria com a janela do PID 0.
 
-O setor 0 já existe em `hd_image.txt`, mas o kernel ainda não o lê:
-`seed_catalog` cria em RAM uma lista fixa com os IDs 1–10 e setores 20–29.
-Logo, listar e executar os dez programas está parcial, mas a persistência do
-catálogo ainda é Fase 3.
+O setor 0 existe em `hd_image.txt` e o arranque o lê para o buffer 1280.
+`load_catalog` confere a assinatura `20261013` e a versão 1 e copia o ID e
+o LBA calculado. O tamanho permanece no setor 0. Gravar o diretório de volta
+continua sendo Fase 3.
 
 #### 26. Como funcionarão criar, renomear, mover e excluir? — FASE 3
 
@@ -616,16 +603,15 @@ catálogo ainda é Fase 3.
 - **Mover**: trocar o slot de diretório da entrada.
 - **Excluir**: zerar o campo ativo, sem compactar as entradas.
 
-O `delete_program` atual compacta os vetores e, por isso, contradiz o layout
-final: compactar mudaria implicitamente o setor associado a cada posição.
-Esse código é preliminar e não deve ser apresentado como CRUD concluído.
+O kernel não tem rotina de exclusão. Compactar as entradas mudaria o setor
+associado a cada posição, então a fase 3 só zera o campo ativo.
 
 Para persistência segura, o kernel montará um catálogo candidato no buffer
 1280–1535, gravará o setor inteiro com `storeHD(0, 1280)` e somente então
 publicará a mudança em RAM. Isso evita deixar metade dos metadados antigos e
 metade novos.
 
-### Modularização, testes e limites
+### Decisões de arquitetura
 
 #### 27. Como existe modularização se o kernel está em um único arquivo? — PARCIAL
 
@@ -645,65 +631,63 @@ so/          -> kernel e documentação
 Não se deve duplicar Verilog dentro de `so/`; o kernel usa contratos MMIO
 oferecidos pelo processador.
 
-#### 28. Como sabemos que a execução individual funciona? — IMPLEMENTADO em simulação
+#### 28. Como será feita uma troca de contexto completa? — FASE 2
 
-Os testes relevantes são:
+A troca começa quando um processo de usuário termina, esgota o quantum ou
+executa `IN`/`OUT`. O fluxo projetado é:
 
-- `tb_hd_map`: geometria, limites e cópia HD→IMEM;
-- `tb_hd_stall`: congelamento durante o DMA;
-- `tb_lcd`: protocolo do menu e MMIO;
-- `tb_retorno`: `runat`, `HLT` armado, `epc` e causa;
-- `tb_menu`: boot real, menu, carga da área, entradas 4 e 6, saída 12,
-  retorno ao menu e carga de outro setor.
-
-O trecho mais próximo de um teste ponta a ponta é:
-
-```verilog
-if (uut.out_reg !== 32'd12)
-    $display("FAIL area");
-else
-    $display("PASS area 4x6/2 = 12");
+```text
+1. hardware detecta a causa e entra em modo privilegiado
+2. supervisor salva PC e os 17 registradores no mailbox
+3. supervisor restaura o contexto do kernel
+4. kernel copia o contexto salvo para o PCB do PID atual
+5. kernel atualiza o estado e escolhe o próximo PID por round-robin
+6. kernel coloca no mailbox contexto, setores e quantum do próximo PID
+7. kernel envia DISPATCH pelo registrador ctrl
+8. supervisor grava a janela de dados atual no HD
+9. supervisor carrega código e dados do próximo PID
+10. supervisor restaura registradores, muda para usuário e libera o PC
 ```
 
-Todos passam no Icarus. Isso não equivale a validação física: o mapa atual de
-4096 palavras ainda precisa ser sintetizado e executado na DE2-115.
+O contexto temporário fica no mailbox; a cópia permanente fica no PCB. A
+janela de dados do PID começa no setor `31 + 3×PID`, enquanto o código vem
+do trio associado ao programa. O kernel decide **quem** executar; o supervisor
+executa **como** salvar, carregar e retomar sem destruir registradores.
 
-Também é preciso separar documentação histórica do estado atual. Relatórios
-ou binários que descrevem 1024 palavras, ABI sem `$fp` ou `HLT` liberado por
-Enter pertencem à versão antiga. Para responder sobre o estado implementado,
-a ordem de confiança é: código atual, testbenches atuais, README/contexto
-consolidados e, por último, relatórios legados.
+#### 29. Por que o timer deve contar apenas instruções de usuário? — FASE 2
 
-#### 29. Qual é o maior risco para executar o projeto na FPGA? — PARCIAL
+O quantum mede quanto tempo de CPU cada processo recebeu. Contar instruções
+do kernel ou do supervisor cobraria do processo o custo interno do SO e
+poderia interromper a própria rotina que está tentando salvar um contexto.
 
-IMEM e RAM fazem leitura assíncrona, e a RAM possui duas portas de escrita no
-mesmo `always`. Nesse estilo, o Quartus pode não inferir blocos M9K e tentar
-implementar cerca de 262 mil bits com flip-flops, mais que os recursos
-disponíveis.
+Por isso, o timer será habilitado somente em modo usuário. Ele fica congelado
+durante:
 
-```verilog
-assign rdata_a = mem[addr_a];
-assign rdata_b = mem[addr_b];
-```
+- execução do kernel e do supervisor;
+- transferência atômica de setor pelo HD;
+- atendimento bloqueante de `IN` ou `OUT`;
+- troca de contexto.
 
-O último `.sof` é anterior ao mapa de 4096 palavras. Portanto, a resposta
-honesta é: a Fase 1 está validada funcionalmente em simulação, mas ainda há
-um risco de síntese que precisa ser resolvido com memórias síncronas e novo
-relatório de fit.
+Ao retornar de uma syscall, o mesmo PID continua com o saldo anterior. Ao
+retornar de uma interrupção de quantum, recebe um novo quantum quando voltar
+a ser escalonado. Isso separa a política de justiça do round-robin do custo
+de manutenção do sistema.
 
-#### 30. O que está pronto e o que falta, em uma resposta curta de banca? — RESUMO
+#### 30. Por que o kernel permanece residente e só existe uma folha de programa? — DECISÃO DE PROJETO
 
-**Pronto:** compilação C- para MIPS-Lite, alvo `os-user`, dez binários no HD,
-IMEM gravável, HD com DMA, LCD, menu, execução individual e retorno ao
-kernel, todos validados em simulação.
+Manter o kernel em 0–3071 permite atender uma trap sem buscá-lo novamente no
+HD. A folha 3072–3839 e a janela de dados 1536–2303 funcionam como áreas de
+trabalho reutilizáveis: a cada despacho, recebem o código e os dados do PID
+escolhido.
 
-**Parcial:** esqueletos de PCB, round-robin e CRUD em RAM; mapa e contratos da
-multitarefa; causa de retorno por `HLT`.
+Essa decisão reduz a complexidade do hardware:
 
-**Falta:** timer, modo privilegiado, supervisor, contexto completo de 18
-palavras, preempção, `IN`/`OUT` como syscall, dez PCBs reais, leitura e commit
-do catálogo, CRUD persistente, síntese do mapa novo e teste na placa.
+- não exige várias IMEMs nem relocação dinâmica do kernel;
+- todos os programas usam as mesmas bases `$gp = 1536` e código em 3072;
+- somente uma região precisa ser conectada ao DMA;
+- processos inativos ocupam setores do HD, não grandes regiões simultâneas
+  da FPGA.
 
-Essa separação é central: o projeto já demonstra a integração
-compilador–SO–processador, mas os gerenciadores completos pertencem às Fases
-2 e 3.
+O custo é que cada troca precisa mover setores inteiros. Para este projeto,
+memória simples e endereços previsíveis foram priorizados em relação ao
+desempenho de uma cache, paginação ou memória virtual completa.
